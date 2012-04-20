@@ -45,6 +45,8 @@ class IRCBot(irc.IRCClient):
         for eventname in self.events.iterkeys():
             self.factory.stop_listening(eventname)
 
+    ### The following are things that happen to us
+
     def privmsg(self, user, channel, message):
         """Someone sent us a private message or we received a channel
         message
@@ -55,6 +57,13 @@ class IRCBot(irc.IRCClient):
         else:
             self.factory.broadcast_message("channelmsg", user, channel, message)
 
+    def notice(self, user, channel, message):
+        """Received a notice"""
+        if channel == self.nickname:
+            self.factory.broadcast_message("noticemsg", user, message)
+        else:
+            self.factory.broadcast_message("channelnotice", user, channel, message)
+
     def joined(self, channel):
         """We have joined a channel"""
         self.factory.broadcast_message("joined", channel)
@@ -63,12 +72,7 @@ class IRCBot(irc.IRCClient):
         """We have left a channel"""
         self.factory.broadcast_message("left", channel)
 
-    def notice(self, user, channel, message):
-        """Received a notice"""
-        if channel == self.nickname:
-            self.factory.broadcast_message("noticemsg", user, message)
-        else:
-            self.factory.broadcast_message("channelnotice", user, channel, message)
+    ### Things we see other users doing or observe about the channel
 
     def modeChanged(self, user, channel, set, modes, args):
         """A mode has changed on a user or a channel.
@@ -85,7 +89,6 @@ class IRCBot(irc.IRCClient):
         """
         self.factory.broadcast_message("modechange", user, channel, set, modes, args)
 
-    ### Things we see other users doing
     def userJoined(self, user, channel):
         self.factory.broadcast_message("userjoined", user, channel)
 

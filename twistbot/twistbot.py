@@ -1,3 +1,6 @@
+import twistbot.pluginbase
+import twistbot.transport
+
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol
 from twisted.internet.ssl import ClientContextFactory
@@ -5,9 +8,13 @@ from twisted.internet.ssl import ClientContextFactory
 import json
 import sys
 
-if __name__ == "__main__":
-    f = BotFactory()
+def main():
+    transport = twistbot.transport.Transport()
+    boss = twistbot.pluginbase.PluginBoss(sys.argv[1], transport)
 
-    reactor.connectSSL("irc.freenode.net", 7000, f, ClientContextFactory())
+    boss.load_all_plugins()
 
     reactor.run()
+
+if __name__ == "__main__":
+    main()
