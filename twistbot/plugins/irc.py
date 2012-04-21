@@ -3,28 +3,10 @@ from twisted.internet import reactor, protocol
 from twisted.internet.ssl import ClientContextFactory
 
 from ..pluginbase import BotPlugin
+from ..transport import Event
 
 
 class IRCBot(irc.IRCClient):
-    nickname = "brownan-bot2"
-
-    # Maps event names to method names that should be called on this event
-    events = {
-            'irc_joinchannel': 'join',
-            'irc_leavechannel': 'leave',
-            'irc_kick': 'kick',
-            'irc_invite': 'invite',
-            'irc_topic': 'topic',
-            'irc_mode': 'mode',
-            'irc_say': 'say',
-            'irc_msg': 'msg',
-            'irc_notice': 'notice',
-            'irc_away': 'away',
-            'irc_back': 'back',
-            'irc_whois': 'whois',
-            'irc_setnick': 'setNick',
-            'irc_quit': 'quit',
-            }
 
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
     ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS
@@ -35,47 +17,46 @@ class IRCBot(irc.IRCClient):
         we can perform
 
         """
-        super(IRCBot, self).connectionMade()
-        for eventname, methodname in self.events.iteritems():
-            self.factory.listen_for_events(eventname, getattr(self, methodname))
+        # Can't use super() because twisted doesn't use new-style classes
+        irc.IRCClient.connectionMade(self)
+        self.factory.client = self
 
-    def connectionLost(self):
+        # Join the configured channels
+        for chan in self.factory.config['channels']:
+            self.join(chan)
+
+    def connectionLost(self, reason):
         """The connection is down and this object is about to be destroyed,
         unhook our event listeners
         
         """
-        super(IRCBot, self).connectionLost()
-        for eventname in self.events.iterkeys():
-            self.factory.stop_listening(eventname)
+        self.factory.client = None
+        irc.IRCClient.connectionLost(self, reason)
 
     ### The following are things that happen to us
 
-    def privmsg(self, user, channel, message):
-        """Someone sent us a private message or we received a channel
-        message
-        
-        """
-        if channel == self.nickname:
-            self.factory.broadcast_message("privmsg", user, message)
-        else:
-            self.factory.broadcast_message("channelmsg", user, channel, message)
-
-    def notice(self, user, channel, message):
-        """Received a notice"""
-        if channel == self.nickname:
-            self.factory.broadcast_message("noticemsg", user, message)
-        else:
-            self.factory.broadcast_message("channelnotice", user, channel, message)
-
     def joined(self, channel):
         """We have joined a channel"""
-        self.factory.broadcast_message("joined", channel)
+        self.factory.broadcast_message("irc.on_join", channel=channel)
 
     def left(self, channel):
         """We have left a channel"""
-        self.factory.broadcast_message("left", channel)
+        self.factory.broadcast_message("irc.on_part", channel=channel)
 
     ### Things we see other users doing or observe about the channel
+
+    def privmsg(self, user, channel, message):
+        """Someone sent us a private message or we received a channel
+        message.
+        
+        """
+        self.factory.broadcast_message("irc.on_privmsg",
+                user=user, channel=channel, message=message)
+
+    def notice(self, user, channel, message):
+        """Received a notice. This is like a privmsg, but distinct."""
+        self.factory.broadcast_message("irc.on_notice",
+                user=user, channel=channel, message=message)
 
     def modeChanged(self, user, channel, set, modes, args):
         """A mode has changed on a user or a channel.
@@ -90,29 +71,37 @@ class IRCBot(irc.IRCClient):
 
         args is a tuple with any additional info required for the mode
         """
-        self.factory.broadcast_message("modechange", user, channel, set, modes, args)
+        self.factory.broadcast_message("irc.on_mode_change",
+                user=user, channel=channel, set=set, modes=modes, args=args)
 
     def userJoined(self, user, channel):
-        self.factory.broadcast_message("userjoined", user, channel)
+        self.factory.broadcast_message("irc.on_user_joined",
+                uesr=user, channel=channel)
 
     def userLeft(self, user, channel):
-        self.factory.broadcast_message("userleft", user, channel)
+        self.factory.broadcast_message("irc.on_user_part",
+                user=user, channel=channel)
 
-    def userQuit(self, user, quitmessage):
-        self.factory.broadcast_message("userquit", user, quitmessage)
+    def userQuit(self, user, message):
+        self.factory.broadcast_message("irc.on_user_quit",
+                user=user, message=message)
 
     def userKicked(self, kickee, channel, kicker, message):
-        self.factory.broadcast_message("userkicked", kickee, channel, kicker, message)
+        self.factory.broadcast_message("irc.on_user_kick",
+                kickee=kickee, channel=channel, kicker=kicker, message=message)
 
     def action(self, user, channel, data):
         """User performs an action on the channel"""
-        self.factory.broadcast_message("action", user, channel, data)
+        self.factory.broadcast_message("irc.on_action",
+                user=user, channel=channel, data=data)
 
     def topicUpdated(self, user, channel, newtopic):
-        self.factory.broadcast_message("topicupdated", user, channel, newtopic)
+        self.factory.broadcast_message("irc.on_topic_updated",
+                user=user, channel=channel, newtopic=newtopic)
 
-    def userRenamed(self, oldname, newname):
-        self.factory.broadcast_message("nickchange", oldname, newname)
+    def userRenamed(self, oldnick, newnick):
+        self.factory.broadcast_message("irc.on_nick_change",
+                oldnick=oldnick, newnick=newsick)
 
 
 
@@ -123,8 +112,64 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
     protocol = IRCBot
 
     def start(self):
-        reactor.connectSSL("irc.freenode.net", 7000, self, ClientContextFactory())
+        self.client = None
+        self.listen_for_event("irc.do_*")
+        reactor.connectSSL(self.config['server'], self.config['port'], self, ClientContextFactory())
 
     def stop(self):
         self.stopTrying()
-        # XXX Figure out how to remove this from the reactor
+        # TODO Figure out how to remove this from the reactor
+
+    def buildProtocol(self, addr):
+        p = self.protocol()
+        p.factory = self
+        # TODO: Configure nickname and other parameters here
+        p.nickname = self.config['nick']
+        return p
+
+    def broadcast_message(self, eventname, **kwargs):
+        """This method is called by the client protocol object when an event
+        comes in from the network
+        
+        """
+        event = Event(eventname, **kwargs)
+        self.transport.send_event(event)
+
+    def received_event(self, event):
+        """A command received from another plugin. We must pass it on to the client
+
+        """
+        if not self.client:
+            # TODO buffer the requests if the client is not currently connected
+            return
+
+        # Maps event names to (method names, arguments) that should be called
+        # on the client protocol object
+        events = {
+            'irc.do_join_channel':  ('join',    ('channel',)),
+            'irc.do_leavechannel':  ('leave',   ('channel',)),
+            'irc.do_kick':          ('kick',    ('channel', 'user', 'reason')),
+            'irc.do_invite':        ('invite',  ('user', 'channel')),
+            'irc.do_topic':         ('topic',   ('channel', 'topic')),
+            'irc.do_mode':          ('mode',    ('chan','set','modes','limit','user','mask')),
+            'irc.do_say':           ('say',     ('channel', 'message', 'length')),
+            'irc.do_msg':           ('msg',     ('user', 'message', 'legnth')),
+            'irc.do_notice':        ('notice',  ('notice', 'user', 'message')),
+            'irc.do_away':          ('away',    ('away', 'message')),
+            'irc.do_back':          ('back',    ()),
+            'irc.do_whois':         ('whois',   ('nickname', 'server')),
+            'irc.do_setnick':       ('setNick', ('nickname',)),
+            'irc.do_quit':          ('quit',    ('message',)),
+            }
+
+        methodname, methodargs = events[event.eventtype]
+
+        kwargs = {}
+        for argname in methodargs:
+            try:
+                kwargs[argname] = getattr(event, argname)
+            except AttributeError:
+                pass
+
+        method = getattr(self.client, methodname)
+        method(**kwargs)

@@ -1,5 +1,5 @@
-import twistbot.pluginbase
-import twistbot.transport
+from . import pluginbase
+from . import transport
 
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol
@@ -9,8 +9,8 @@ import json
 import sys
 
 def main():
-    transport = twistbot.transport.Transport()
-    boss = twistbot.pluginbase.PluginBoss(sys.argv[1], transport)
+    transportobj = transport.Transport()
+    boss = pluginbase.PluginBoss(sys.argv[1], transportobj)
 
     boss.load_all_plugins()
 

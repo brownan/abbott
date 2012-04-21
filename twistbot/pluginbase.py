@@ -51,18 +51,28 @@ I'll create a new one for you now""")
             if nick:
                 break
 
+        while True:
+            chan = raw_input("Any particular channel I should join to begin with? >")
+            chan = chan.strip()
+            if chan:
+                break
+
 
         print("Alright, I can take it from here. All other commands you can issue to the bot at runtime")
 
         self._config = {
                 'core': {
-                    'server': server,
-                    'port': port,
                     'admins': [admin],
-                    'nick': nick,
                     'plugins': ['irc.IRCBotPlugin'],
-                    'plugin_config': {},
-                    }
+                    },
+                'plugin_config': {
+                    'irc.IRCBotPlugin': {
+                        'server': server,
+                        'port': port,
+                        'nick': nick,
+                        'channels': [chan],
+                        },
+                    },
                 }
         self.save()
 
@@ -70,17 +80,9 @@ I'll create a new one for you now""")
         with open(self._filename, 'r') as file_handle:
             self._config = json.load(file_handle)
 
-    def __getattr__(self, key):
-        value = self._config['core'][key]
-        return copy(value)
-
-    def __setattr__(self, key, value):
-        self._config['core'][key] = value
-        self.save()
-
     def save(self):
         with open(self._filename, 'w') as output_file_handle:
-            json.dump(self._config, output_file_handle)
+            json.dump(self._config, output_file_handle, indent=4)
 
     def load_all_plugins(self):
         """Called by the main method at startup time to load all configured plugins"""

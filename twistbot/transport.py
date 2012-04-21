@@ -16,7 +16,7 @@ class Transport(object):
     def send_event(self, event):
         # First call all middleware
         for callback_name, callback_obj_set in self._middleware_listeners.iteritems():
-            callback_match = callback.replace("*", "[^.]+") + "$"
+            callback_match = callback_name.replace("*", "[^. ]+") + "$"
             if re.match(callback_match, event.eventtype):
                 for callback_obj in callback_obj_set:
                     event = callback_obj.received_middleware_event(event)
@@ -25,7 +25,7 @@ class Transport(object):
 
         # Now call the event handlers
         for callback_name, callback_obj_set in self._event_listeners.iteritems():
-            callback_match = callback.replace("*", "[^.]+") + "$"
+            callback_match = callback_name.replace("*", "[^.]+") + "$"
             if re.match(callback_match, event.eventtype):
                 for callback_obj in callback_obj_set:
                     event = callback_obj.received_event(event)
