@@ -26,6 +26,9 @@ class IRCBot(irc.IRCClient):
             'irc_quit': 'quit',
             }
 
+    ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
+    ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS
+
     def connectionMade(self):
         """This is called by Twisted once the connection has been made, and has
         access to self.factory. This is where we set up callbacks for actions

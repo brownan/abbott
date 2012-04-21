@@ -107,6 +107,7 @@ I'll create a new one for you now""")
     def unload_plugin(self, plugin_name):
         plugin = self._loaded_plugins.pop(plugin_name)
         plugin.stop()
+        self.transport.unhook_plugin(plugin)
 
     def get_plugin_config(self, plugin_name):
         return self._config['plugin_config'].get(plugin_name, {})
@@ -118,73 +119,26 @@ class BotPlugin(object):
 
     """
     def __init__(self, plugin_name, transport, pluginboss):
-        # These variables are private and name-mangled to 1. keep the
-        # implementation hidden from subclasses, and 2. to prevent namespace
-        # collisions with subclasses (further hiding the implementation of this
-        # superclass). It's not strictly necessary since namespace collisions
-        # are unlikely, but it strikes me as the "right way" to do this kind of
-        # thing: where a superclass wants to provide functionality to its
-        # subclasses in a carefully exposed manner.
-        self.__plugin_name = plugin_name
-        self.__transport = transport
-        self.__pluginboss = pluginboss
+        self.plugin_name = plugin_name
+        self.transport = transport
+        self.pluginboss = pluginboss
 
-    ### Transport-layer methods. Plugins should call these methods for sending
-    ### and receiving events from other plugins
-
-    def listen_for_event(self, eventname, callback):
-        """Listen for an event. The callback signature is event-specific"""
-        raise NotImplementedError() # XXX TODO
-
-    def stop_listening(self, eventname):
-        """Disconnects all handlers this plugin has for the given event"""
-        raise NotImplementedError() # XXX TODO
-
-    def send_message(self, pluginid, eventname, *args, **kwargs):
-        """Send a message to a specific plugin"""
-        raise NotImplementedError() # XXX TODO
-
-    def broadcast_message(self, eventname, *args, **kwargs):
-        """Broadcast a message to all plugins listening for this event"""
-        raise NotImplementedError() # XXX TODO
-
-    ### Persistent storage methods. Plugins should call these methods for
-    ### saving and restoring data from the persistent store
-
-    def save_config(self):
-        """Saves the configuration persistently"""
-        self.__pluginboss.save()
-
-    def get_config(self):
-        """Returns a dictionary of name/value mappings from the persistent
-        store. This returns a reference. Edit the returned dictionary and call
-        self.save_config() to save to the persistent store.
-
-        Note: the config may be saved randomly at any time. However, it is not
-        guaranteed to be saved unless self.save_config() is called!
-
-        """
-        return self.__pluginboss.get_plugin_config(self.__plugin_name)
-
-    ### Interface to periodic and deferred callbacks. Plugins can call these
-    ### methods as a simple interface to the twisted scheduler
-
-    def register_periodic_callback(self, timeout, callback):
-        raise NotImplementedError() # XXX TODO
-
-    def call_later(self, timeout, callback):
-        raise NotImplementedError() # XXX TODO
-
+        self.reload()
 
     ### Plugins should override these methods if appropriate
 
     def reload(self):
         """This is called to indicate the configuration has changed and the
         plugin should call get_config() and make any necessary changes to its
-        runtime
+        runtime.
+        
+        It is called by the constructor, and anytime an external event
+        indicates the configuration has changed.
+
+        Feel free to override.
 
         """
-        pass
+        self.config = self.pluginboss.get_plugin_config(self.plugin_name)
 
     def start(self):
         """Do any initialization here. This is called after __init__()
@@ -201,9 +155,28 @@ class BotPlugin(object):
         """
         pass
 
-    ### These "secret" methods expose the underlying objects for plugins that
-    ### wish to control core functionality
-    def _get_transport(self):
-        return self.__transport
-    def _get_pluginboss(self):
-        return self.__pluginboss
+    ### Convenience dispatcher methods, but feel free to override them if you
+    ### want!
+
+    def received_event(self, event):
+        """An event has been received by this plugin"""
+        method = getattr(self, "on_event_%s" % event.eventtype.replace(".","_"), None)
+        if method:
+            method(event)
+
+    def received_middleware_event(self, event):
+        """This event has been intercepted before it got to its destination. We
+        can return a new / modified event, or None to indicate the event should
+        be swallowed
+
+        """
+        method = getattr(self, "on_middleware_%s" % event.eventtype.replace(".","_"), None)
+        if method:
+            return method(event)
+
+    ### Convenience method for use by the plugin to install event listeners
+    def install_middleware(self, matchstr):
+        self.transport.install_middleware(matchstr, self)
+
+    def listen_for_event(self, matchstr):
+        self.transport.listen_for_event(matchstr, self)
