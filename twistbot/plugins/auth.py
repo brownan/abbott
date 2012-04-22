@@ -5,10 +5,10 @@ from twisted.python import log
 from twisted.internet import defer, reactor
 
 from ..pluginbase import BotPlugin
-from .command import CommandPlugin
+from . import command
 from ..transport import Event
 
-class Auth(CommandPlugin):
+class Auth(command.CommandPluginSuperclass):
     """Auth plugin.
 
     Provides a reliable set of permissions other plugins can rely on. For
@@ -19,6 +19,7 @@ class Auth(CommandPlugin):
     
     """
     def start(self):
+        super(Auth, self).start()
 
         # Install a middleware hook for all irc events
         self.install_middleware("irc.on_*")
@@ -37,13 +38,17 @@ class Auth(CommandPlugin):
         # Install a few commands. These will call the given callback. This
         # functionality is provided by the CommandPlugin class, from which this
         # class inherits. The CommandPlugin will also check permissions.
-        self.install_command("permission add (?P<name>\w+) (?<perm>\w+)",
+        self.install_command(r"permission add (?P<name>\w+) (?P<perm>\w+)",
                 "auth.change_permissions",
                 self.permission_add)
 
-        self.install_command("permission revoke (?P<name>\w+) (?<perm>\w+)",
+        self.install_command(r"permission revoke (?P<name>\w+) (?P<perm>\w+)",
                 "auth.change_permissiosn",
                 self.permission_revoke)
+
+        self.install_command(r"permission list (?P<name>\w+)",
+                None,
+                self.permission_list)
 
     def received_middleware_event(self, event):
         """For events that are applicable, install a handler one can call to
@@ -147,7 +152,15 @@ class Auth(CommandPlugin):
             perms = self.config['perms'].get(authname, [])
             return defer.succeed(perms)
 
-        # We'll call this deferred object when the query is ready
+        if hostmask in self.waiting:
+            # There is already a pending request for permissions for this
+            # hostname. Don't issue another whois, just add another deferred
+            # object to this set.
+            log.msg("Request for permission for %s, but there is already a pending request" % hostmask)
+            deferred = defer.Deferred()
+            self.waiting[hostmask].add(deferred)
+            return deferred
+
         deferred = defer.Deferred()
         self.waiting[hostmask].add(deferred)
 
@@ -170,18 +183,21 @@ class Auth(CommandPlugin):
     ### The command plugin callbacks, installed above
 
     def permission_add(self, event, name, perm):
-        self.permissions[(name, event.channel)].add(perm)
+        self.config['perms'][name].add(perm)
         self._save()
-        event.reply("Permission %s granted for user %s in %s" % (perm, name, event.channel))
+        event.reply("Permission %s granted for user %s" % (perm, name))
 
     def permission_revoke(self, event, name, perm):
         try:
-            self.permissions[(name, event.channel)].remove(perm)
+            self.config['perms'][name].remove(perm)
         except KeyError:
-            event.reply("User %s doesn't have permission %s in channel %s!" % (name, perm, event.channel))
+            event.reply("User %s doesn't have permission %s!" % (name, perm))
         else:
             self._save()
-            event.reply("Permission %s revoked for user %s in channel %s" % (perm, name, event.channel))
+            event.reply("Permission %s revoked for user %s" % (perm, name))
+
+    def permission_list(self, event, name):
+        event.reply("User %s has permissions %s" % (name, self.config['perms'].get(name, [])))
 
     ### Reload event
     def reload(self):

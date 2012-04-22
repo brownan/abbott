@@ -13,7 +13,7 @@ class PluginBoss(object):
         self._filename = config
         self._transport = transport
 
-        self._loaded_plugins = {}
+        self.loaded_plugins = {}
         
         try:
             self._load()
@@ -60,7 +60,7 @@ I'll create a new one for you now""")
 
         print("Alright, I can take it from here. All other commands you can issue to the bot at runtime")
 
-        self._config = {
+        self.config = {
                 'core': {
                     'admins': [admin],
                     'plugins': ['irc.IRCBotPlugin'],
@@ -83,15 +83,15 @@ I'll create a new one for you now""")
 
     def _load(self):
         with open(self._filename, 'r') as file_handle:
-            self._config = json.load(file_handle)
+            self.config = json.load(file_handle)
 
     def save(self):
         with open(self._filename, 'w') as output_file_handle:
-            json.dump(self._config, output_file_handle, indent=4)
+            json.dump(self.config, output_file_handle, indent=4)
 
     def load_all_plugins(self):
         """Called by the main method at startup time to load all configured plugins"""
-        for plugin_name in self._config['core']['plugins']:
+        for plugin_name in self.config['core']['plugins']:
             self.load_plugin(plugin_name)
 
     def load_plugin(self, plugin_name):
@@ -109,15 +109,15 @@ I'll create a new one for you now""")
         plugin = pluginclass(plugin_name, self._transport, self)
         plugin.start()
 
-        self._loaded_plugins[plugin_name] = plugin
+        self.loaded_plugins[plugin_name] = plugin
 
     def unload_plugin(self, plugin_name):
-        plugin = self._loaded_plugins.pop(plugin_name)
+        plugin = self.loaded_plugins.pop(plugin_name)
         plugin.stop()
         self.transport.unhook_plugin(plugin)
 
     def get_plugin_config(self, plugin_name):
-        return self._config['plugin_config'].get(plugin_name, {})
+        return self.config['plugin_config'].get(plugin_name, {})
 
 
 class BotPlugin(object):
