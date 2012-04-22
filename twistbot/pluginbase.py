@@ -156,13 +156,12 @@ class BotPlugin(object):
 
     def reload(self):
         """This is called to indicate the configuration has changed and the
-        plugin should call get_config() and make any necessary changes to its
-        runtime.
+        plugin should make any necessary changes to its runtime.
         
-        It is called by the constructor, and anytime an external event
+        This method is called by the constructor, and anytime an external event
         indicates the configuration has changed.
 
-        Feel free to override.
+        Feel free to override. This is just an example.
 
         """
         self.config = self.pluginboss.get_plugin_config(self.plugin_name)

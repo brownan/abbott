@@ -46,9 +46,17 @@ class IRCBot(irc.IRCClient):
         log.msg("Joined channel %s" % channel)
         self.factory.broadcast_message("irc.on_join", channel=channel)
 
+        if channel not in self.factory.config['channels']:
+            self.factory.config['channels'].append(channel)
+            self.factory.pluginboss.save()
+
     def left(self, channel):
         """We have left a channel"""
         self.factory.broadcast_message("irc.on_part", channel=channel)
+
+        if channel in self.factory.config['channels']:
+            self.factory.config['channels'].remove(channel)
+            self.factory.pluginboss.save()
 
     ### Things we see other users doing or observe about the channel
 
@@ -206,17 +214,20 @@ class IRCController(CommandPluginSuperclass):
                 "'part [channel]' Leaves the current or specified IRC channel",
                 permission="irc.control")
 
+        self.install_command(r"nick (?P<newnick>[\w-]+)",
+                "irc.control",
+                self.nickchange)
+        self.help_msg("nick",
+                "'nick <newnick>' Changes the nickname of the bot",
+                permission="irc.control")
+
     def join(self, event, match):
         channel = match.groupdict()['channel']
         
         newevent = Event("irc.do_join_channel", channel=channel)
         self.transport.send_event(newevent)
 
-        if channel not in self.config['channels']:
-            self.config['channels'].append(channel)
-            self.pluginboss.save()
-
-        event.reply("Channel join sent. See you in %s!" % channel)
+        event.reply("See you in %s!" % channel)
 
     def part(self, event, match):
         channel = match.groupdict().get("channel", None)
@@ -236,6 +247,16 @@ class IRCController(CommandPluginSuperclass):
             event.reply("Goodbye %s!" % channel)
             self.transport.send_event(newevent)
 
-        if channel in self.config['channels']:
-            self.config['channels'].remove(channel)
-            self.pluginboss.save()
+    def nickchange(self, event, match):
+        newnick = match.groupdict()['newnick']
+
+        if not event.channel.startswith("#"):
+            event.reply("Changing nick to %s" % newnick)
+
+        newevent = Event("irc.do_setnick", nickname=newnick)
+        self.transport.send_event(newevent)
+
+        # Also change the configuration
+        self.pluginboss.config['plugin_config']['irc.IRCBotPlugin']['nick'] = newnick
+        self.pluginboss.save()
+        self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].reload()
