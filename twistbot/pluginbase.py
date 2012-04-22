@@ -72,6 +72,11 @@ I'll create a new one for you now""")
                         'nick': nick,
                         'channels': [chan],
                         },
+                    'auth.Auth': {
+                        'perms': {
+                                admin: ['*'] # all permissions
+                            },
+                        },
                     },
                 }
         self.save()

@@ -1,6 +1,7 @@
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol
 from twisted.internet.ssl import ClientContextFactory
+from twisted.python import log
 
 from ..pluginbase import BotPlugin
 from ..transport import Event
@@ -21,6 +22,8 @@ class IRCBot(irc.IRCClient):
         irc.IRCClient.connectionMade(self)
         self.factory.client = self
 
+        log.msg("Connection made")
+
         # Join the configured channels
         for chan in self.factory.config['channels']:
             self.join(chan)
@@ -32,6 +35,8 @@ class IRCBot(irc.IRCClient):
         """
         self.factory.client = None
         irc.IRCClient.connectionLost(self, reason)
+
+        log.msg("Connection lost")
 
     ### The following are things that happen to us
 
@@ -53,7 +58,7 @@ class IRCBot(irc.IRCClient):
         self.factory.broadcast_message("irc.on_privmsg",
                 user=user, channel=channel, message=message)
 
-    def notice(self, user, channel, message):
+    def noticed(self, user, channel, message):
         """Received a notice. This is like a privmsg, but distinct."""
         self.factory.broadcast_message("irc.on_notice",
                 user=user, channel=channel, message=message)
@@ -65,14 +70,14 @@ class IRCBot(irc.IRCClient):
 
         channel is the channel where the mode changed.
 
-        set is true if the mode is being added, falst if it is being removed.
+        set is true if the mode is being added, false if it is being removed.
 
         modes is the mode or modes which are being changed
 
         args is a tuple with any additional info required for the mode
         """
         self.factory.broadcast_message("irc.on_mode_change",
-                user=user, channel=channel, set=set, modes=modes, args=args)
+                user=user, chan=channel, set=set, modes=modes, args=args)
 
     def userJoined(self, user, channel):
         self.factory.broadcast_message("irc.on_user_joined",
@@ -101,8 +106,15 @@ class IRCBot(irc.IRCClient):
 
     def userRenamed(self, oldnick, newnick):
         self.factory.broadcast_message("irc.on_nick_change",
-                oldnick=oldnick, newnick=newsick)
+                oldnick=oldnick, newnick=newnick)
 
+    def irc_unknown(self, prefix, command, params):
+        """This hooks into all sorts of miscelaneous things the server sends
+        us, including whois replies
+
+        """
+        self.factory.broadcast_message("irc.on_unknown",
+                prefix=prefix, command=command, params=params)
 
 
 class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
@@ -123,7 +135,6 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
     def buildProtocol(self, addr):
         p = self.protocol()
         p.factory = self
-        # TODO: Configure nickname and other parameters here
         p.nickname = self.config['nick']
         return p
 
