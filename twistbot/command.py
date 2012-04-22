@@ -3,10 +3,10 @@ from collections import namedtuple
 
 from twisted.python import log
 
-from ..pluginbase import BotPlugin
-from ..transport import Event
+from .pluginbase import BotPlugin
+from .transport import Event
 
-CommandTuple = namedtuple("CommandTuple", ['re', 'permission', 'callback', 'prefix'])
+CommandTuple = namedtuple("CommandTuple", ['re', 'permission', 'callback'])
 
 class CommandPluginSuperclass(BotPlugin):
     """This class is meant to be a superclass of plugins that wish to use the
@@ -25,7 +25,17 @@ class CommandPluginSuperclass(BotPlugin):
     Use of the command functionality in derived plugins requires the use of the
     auth.Auth plugin.
 
+    the prefix attribute, if not None, is a prefix to be added to the format
+    string for commands to this class, overriding the global default. If prefix
+    is None, the global default prefix is required.
+
+    The global prefix is configured in config['command']['prefix']. For
+    example, if the global prefix is "!", all commands must be prefixed with a
+    "!". But individual commands may override this prefix.
+
     """
+    prefix = None
+
     def __init__(self, *args, **kwargs):
         super(CommandPluginSuperclass, self).__init__(*args, **kwargs)
 
@@ -35,11 +45,13 @@ class CommandPluginSuperclass(BotPlugin):
         # A list of (regular expression object, permission, callback, prefix)
         # tuples
         self.__callbacks = []
+        self.__catchalls = []
 
     def start(self):
+        super(CommandPluginSuperclass, self).start()
         self.listen_for_event("irc.on_privmsg")
 
-    def install_command(self, formatstr, permission, callback, prefix=None):
+    def install_command(self, formatstr, permission, callback):
         """Install a command.
 
         formatstr is a regular expression string. Its captured groups will be
@@ -62,47 +74,64 @@ class CommandPluginSuperclass(BotPlugin):
         The callback parameter is a callable that is called upon the command
         when it is issued by a user with appropriate permissions.
 
-        the prefix parameter, if not None, is a prefix to be added to the
-        format string, overriding the global default. If prefix is None, the
-        global default prefix is required.
 
-        The global prefix is configured in config['command']['prefix']. For
-        example, if the global prefix is "!", all commands must be prefixed
-        with a "!". But individual commands may override this prefix.
-
-        The callback format takes one fixed parameter: the event object. The
+        The callback format takes two parameters: the event object and the
+        regular expression match object of the matched command. The event
         object has one extra attribute inserted: reply. This is a callable that
         takes a string and will reply to the source of the message.
 
-        The other arguments to the callback are the positional or named
-        parameters from the regular expression captured groups. You must use
-        either positional OR named capture groups, not both.
-
         """
         self.__callbacks.append(
-                CommandTuple(re.compile(formatstr), permission, callback, prefix)
+                CommandTuple(re.compile(formatstr), permission, callback)
                 )
+
+    def install_catchall(self, formatstr, permission, callback):
+        """This method installs a command in the same way that
+        install_command() does, with the exceptions that commands installed
+        with this will *only* be called if no other command from this plugin is
+        matched.
+
+        This is the preferred way to install "help" commands.
+
+        """
+        self.__catchalls.append(
+                CommandTuple(re.compile(formatstr), permission, callback)
+                )
+
+    def help_msg(self, formatstr, helpstr, permission=None):
+        """A helpful shortcut for help messages that installs a catchall
+        callback that simply replies with the given help string.
+        """
+        def callback(event, match):
+            event.reply("Usage: " + helpstr)
+        self.install_catchall(formatstr, permission, callback)
 
     def on_event_irc_on_privmsg(self, event):
         # Check for all the different prefixes or ways a line could contain a
-        # command. If one of them matches, dispatch into self._do_command()
+        # command. If one of them matches, dispatch into self.__do_command()
 
         for callbacktuple in self.__callbacks:
+            # If it was a private message, match against the entire message and
+            # disregard the other ones
+            if not event.channel.startswith("#"):
+                match = callbacktuple.re.match(event.message)
+                if match:
+                    self.__do_command(match, callbacktuple, event)
+                continue
+
             # the configured prefix
-            if callbacktuple.prefix is not None and event.message.startswith(callbacktuple.prefix):
-                msg = event.message[len(callbacktuple.prefix):].strip()
+            if self.prefix is not None and event.message.startswith(self.prefix):
+                msg = event.message[len(self.prefix):].strip()
                 match = callbacktuple.re.match(msg)
                 if match:
-                    self._do_command(match, callbacktuple, event)
-                continue
+                    self.__do_command(match, callbacktuple, event)
 
             # The global prefix
             if self.__globalprefix is not None and event.message.startswith(self.__globalprefix):
                 msg = event.message[len(self.__globalprefix):].strip()
                 match = callbacktuple.re.match(msg)
                 if match:
-                    self._do_command(match, callbacktuple, event)
-                continue
+                    self.__do_command(match, callbacktuple, event)
 
             # The current nickname plus a colon
             # dig deep to find the current nickname
@@ -111,29 +140,25 @@ class CommandPluginSuperclass(BotPlugin):
                 msg = event.message[len(nick)+1:].strip()
                 match = callbacktuple.re.match(msg)
                 if match:
-                    self._do_command(match, callbacktuple, event)
-                continue
+                    self.__do_command(match, callbacktuple, event)
 
 
-    def _do_command(self, match, callbacktuple, event):
+    def __do_command(self, match, callbacktuple, event):
         """A user has issued a command. We still have to check permissions"""
         # Now create a reply method and add it to the event object
 
         def reply(msg):
             nick = event.user.split("!",1)[0]
             msg = "%s: %s" % (nick, msg)
-            newevent = Event("irc.do_msg", user=event.channel, message=msg)
+            channel = event.channel if event.channel.startswith("#") else nick
+            newevent = Event("irc.do_msg", user=channel, message=msg)
             self.transport.send_event(newevent)
         event.reply = reply
 
         if callbacktuple.permission is None:
             # This command does not require permission. No need to check the
             # user at all
-            named_groups = match.groupdict()
-            if named_groups:
-                callbacktuple.callback(event, **named_groups)
-            else:
-                callbacktuple.callback(event, *match.groups())
+            callbacktuple.callback(event, match)
             return
 
 
@@ -150,13 +175,12 @@ class CommandPluginSuperclass(BotPlugin):
                 if re.match(perm_match_str, callbacktuple.permission):
                     # Successful match
                     log.msg("User %s is auth'd with %s to perform %s" % (event.user, perm, callbacktuple.callback))
-                    named_groups = match.groupdict()
-                    if named_groups:
-                        callbacktuple.callback(event, **named_groups)
-                    else:
-                        callbacktuple.callback(event, *match.groups())
+                    callbacktuple.callback(event, match)
+                    break
+                else:
+                    log.msg("User %s does not have permissions for %s" % (event.user, callbacktuple.callback))
 
 
         deferred = event.get_permissions()
-        deferred.addCallback(check_permission)
+        deferred.addCallback(check_permissions)
         

@@ -5,6 +5,7 @@ from twisted.python import log
 
 from ..pluginbase import BotPlugin
 from ..transport import Event
+from ..command import CommandPluginSuperclass
 
 
 class IRCBot(irc.IRCClient):
@@ -42,6 +43,7 @@ class IRCBot(irc.IRCClient):
 
     def joined(self, channel):
         """We have joined a channel"""
+        log.msg("Joined channel %s" % channel)
         self.factory.broadcast_message("irc.on_join", channel=channel)
 
     def left(self, channel):
@@ -158,7 +160,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         # on the client protocol object
         events = {
             'irc.do_join_channel':  ('join',    ('channel',)),
-            'irc.do_leavechannel':  ('leave',   ('channel',)),
+            'irc.do_leave_channel':  ('leave',   ('channel',)),
             'irc.do_kick':          ('kick',    ('channel', 'user', 'reason')),
             'irc.do_invite':        ('invite',  ('user', 'channel')),
             'irc.do_topic':         ('topic',   ('channel', 'topic')),
@@ -184,3 +186,56 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
 
         method = getattr(self.client, methodname)
         method(**kwargs)
+
+class IRCController(CommandPluginSuperclass):
+
+    def start(self):
+        super(IRCController, self).start()
+        
+        self.install_command(r"join (?P<channel>#\w+)$",
+                "irc.control",
+                self.join)
+        self.help_msg("join",
+                "'join <channel>' Joins an IRC channel",
+                permission="irc.control")
+
+        self.install_command(r"(part|leave)( (?P<channel>#\w+))?$",
+                "irc.control",
+                self.part)
+        self.help_msg("part",
+                "'part [channel]' Leaves the current or specified IRC channel",
+                permission="irc.control")
+
+    def join(self, event, match):
+        channel = match.groupdict()['channel']
+        
+        newevent = Event("irc.do_join_channel", channel=channel)
+        self.transport.send_event(newevent)
+
+        if channel not in self.config['channels']:
+            self.config['channels'].append(channel)
+            self.pluginboss.save()
+
+        event.reply("Channel join sent. See you in %s!" % channel)
+
+    def part(self, event, match):
+        channel = match.groupdict().get("channel", None)
+
+        if channel:
+            newevent = Event("irc.do_leave_channel", channel=channel)
+            self.transport.send_event(newevent)
+            event.reply("Leaving %s" % channel)
+        else:
+
+            channel = event.channel
+            if not channel.startswith("#"):
+                event.reply("You must let me know what channel to leave")
+                return
+
+            newevent = Event("irc.do_leave_channel", channel=channel)
+            event.reply("Goodbye %s!" % channel)
+            self.transport.send_event(newevent)
+
+        if channel in self.config['channels']:
+            self.config['channels'].remove(channel)
+            self.pluginboss.save()

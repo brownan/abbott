@@ -14,21 +14,25 @@ class Transport(object):
         self._event_listeners = defaultdict(set)
 
     def send_event(self, event):
+        # Note: iterating over the listener dictionaries and sets are done with
+        # copies, not an iterator, because of the posibility of the dictionary
+        # being modified somewhere down the stack in an event handler
+
         # First call all middleware
-        for callback_name, callback_obj_set in self._middleware_listeners.iteritems():
+        for callback_name, callback_obj_set in self._middleware_listeners.items():
             callback_parts = [re.escape(x) for x in callback_name.split("*")]
             callback_match = "[^. ]+".join(callback_parts) + "$"
             if re.match(callback_match, event.eventtype):
-                for callback_obj in callback_obj_set:
+                for callback_obj in set(callback_obj_set):
                     event = callback_obj.received_middleware_event(event)
                     if not event:
                         return
 
         # Now call the event handlers
-        for callback_name, callback_obj_set in self._event_listeners.iteritems():
+        for callback_name, callback_obj_set in self._event_listeners.items():
             callback_match = callback_name.replace("*", "[^.]+") + "$"
             if re.match(callback_match, event.eventtype):
-                for callback_obj in callback_obj_set:
+                for callback_obj in set(callback_obj_set):
                     callback_obj.received_event(event)
 
     def install_middleware(self, matchstr, obj_to_notify):

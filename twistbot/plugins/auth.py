@@ -5,7 +5,7 @@ from twisted.python import log
 from twisted.internet import defer, reactor
 
 from ..pluginbase import BotPlugin
-from . import command
+from .. import command
 from ..transport import Event
 
 class Auth(command.CommandPluginSuperclass):
@@ -38,15 +38,15 @@ class Auth(command.CommandPluginSuperclass):
         # Install a few commands. These will call the given callback. This
         # functionality is provided by the CommandPlugin class, from which this
         # class inherits. The CommandPlugin will also check permissions.
-        self.install_command(r"permission add (?P<name>\w+) (?P<perm>\w+)",
-                "auth.change_permissions",
+        self.install_command(r"permission add (?P<name>\w+) (?P<perm>[\w.]+)$",
+                "auth.edit_permissions",
                 self.permission_add)
 
-        self.install_command(r"permission revoke (?P<name>\w+) (?P<perm>\w+)",
-                "auth.change_permissiosn",
+        self.install_command(r"permission revoke (?P<name>\w+) (?P<perm>[\w.]+)$",
+                "auth.edit_permissions",
                 self.permission_revoke)
 
-        self.install_command(r"permission list (?P<name>\w+)",
+        self.install_command(r"permission list (?P<name>[\w.]+)$",
                 None,
                 self.permission_list)
 
@@ -182,21 +182,30 @@ class Auth(command.CommandPluginSuperclass):
 
     ### The command plugin callbacks, installed above
 
-    def permission_add(self, event, name, perm):
-        self.config['perms'][name].add(perm)
+    def permission_add(self, event, match):
+        groupdict = match.groupdict()
+        name = groupdict['name']
+        perm = groupdict['perm']
+        self.config['perms'][name].append(perm)
         self._save()
         event.reply("Permission %s granted for user %s" % (perm, name))
 
-    def permission_revoke(self, event, name, perm):
+    def permission_revoke(self, event, match):
+        groupdict = match.groupdict()
+        name = groupdict['name']
+        perm = groupdict['perm']
         try:
             self.config['perms'][name].remove(perm)
-        except KeyError:
+        except (KeyError, ValueError):
+            # keyerror if the user doesn't have any, valueerror if the user has
+            # some but not this one
             event.reply("User %s doesn't have permission %s!" % (name, perm))
         else:
             self._save()
             event.reply("Permission %s revoked for user %s" % (perm, name))
 
-    def permission_list(self, event, name):
+    def permission_list(self, event, match):
+        name = match.groupdict()['name']
         event.reply("User %s has permissions %s" % (name, self.config['perms'].get(name, [])))
 
     ### Reload event
