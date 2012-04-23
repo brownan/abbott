@@ -320,7 +320,9 @@ class IRCController(CommandPluginSuperclass):
         else:
 
             channel = event.channel
-            if not channel.startswith("#"):
+            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+            if channel == mynick:
+                # This was sent via a direct PM... I can't leave that!
                 event.reply("You must let me know what channel to leave")
                 return
 
@@ -330,8 +332,9 @@ class IRCController(CommandPluginSuperclass):
 
     def nickchange(self, event, match):
         newnick = match.groupdict()['newnick']
+        oldnick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
 
-        if not event.channel.startswith("#"):
+        if event.channel == oldnick:
             event.reply("Changing nick to %s" % newnick)
 
         newevent = Event("irc.do_setnick", nickname=newnick)

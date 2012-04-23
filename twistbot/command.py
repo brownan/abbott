@@ -110,10 +110,14 @@ class CommandPluginSuperclass(BotPlugin):
         # Check for all the different prefixes or ways a line could contain a
         # command. If one of them matches, dispatch into self.__do_command()
 
+        # dig deep to find the current nickname; we use it in a couple checks
+        # below
+        nick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+
         for callbacktuple in self.__callbacks:
             # If it was a private message, match against the entire message and
             # disregard the other ones
-            if not event.channel.startswith("#"):
+            if event.channel == nick:
                 match = callbacktuple.re.match(event.message)
                 if match:
                     self.__do_command(match, callbacktuple, event)
@@ -134,8 +138,6 @@ class CommandPluginSuperclass(BotPlugin):
                     self.__do_command(match, callbacktuple, event)
 
             # The current nickname plus a colon
-            # dig deep to find the current nickname
-            nick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
             if event.message.startswith(nick + ":"):
                 msg = event.message[len(nick)+1:].strip()
                 match = callbacktuple.re.match(msg)
@@ -153,9 +155,18 @@ class CommandPluginSuperclass(BotPlugin):
             else:
                 eventname = "irc.do_msg"
             nick = event.user.split("!",1)[0]
-            if userprefix:
+            
+            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+
+            if userprefix and mynick != event.channel:
+                # Never prefix the user if this is a PM, otherwise obey the
+                # request or the default
                 msg = "%s: %s" % (nick, msg)
-            channel = event.channel if event.channel.startswith("#") else nick
+
+            # If it was sent to us directly (channel == mynick) then send it
+            # directly back. Otherwise send it to the originating channel
+            channel = event.channel if event.channel != mynick else nick
+
             newevent = Event(eventname, user=channel, message=msg)
             self.transport.send_event(newevent)
         event.reply = reply
