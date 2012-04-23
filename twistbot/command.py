@@ -147,7 +147,7 @@ class CommandPluginSuperclass(BotPlugin):
         """A user has issued a command. We still have to check permissions"""
         # Now create a reply method and add it to the event object
 
-        def reply(msg, userprefix=True, notice=True):
+        def reply(msg, userprefix=True, notice=False):
             if notice:
                 eventname = "irc.do_notice"
             else:
