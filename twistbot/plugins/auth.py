@@ -38,15 +38,18 @@ class Auth(command.CommandPluginSuperclass):
         # Install a few commands. These will call the given callback. This
         # functionality is provided by the CommandPlugin class, from which this
         # class inherits. The CommandPlugin will also check permissions.
-        self.install_command(r"permission add (?P<name>\w+) (?P<perm>[\w.]+)$",
+        self.install_command(r"permissions? add (?P<name>\w+) (?P<perm>[\w.\*]+)$",
                 "auth.edit_permissions",
                 self.permission_add)
 
-        self.install_command(r"permission revoke (?P<name>\w+) (?P<perm>[\w.]+)$",
+        self.install_command(r"permissions? revoke (?P<name>\w+) (?P<perm>[\w.\*]+)$",
                 "auth.edit_permissions",
                 self.permission_revoke)
 
-        self.install_command(r"permission list (?P<name>[\w.]+)$",
+        self.install_command(r"permissions? list( (?P<name>[\w.]+))?$",
+                None,
+                self.permission_list)
+        self.install_command(r"whoami$",
                 None,
                 self.permission_list)
 
@@ -66,7 +69,6 @@ class Auth(command.CommandPluginSuperclass):
                 "irc.on_action",
                 "irc.on_topic_updated",
                 ]:
-
             event.get_permissions = functools.partial(self._get_permissions, event.user)
 
         return event
@@ -117,7 +119,7 @@ class Auth(command.CommandPluginSuperclass):
         log.msg("user %s is authed as %s. Calling deferred callbacks" % (hostmask, authname))
 
         # Get the permissions
-        perms = self.config['perms'].get(authname, [])
+        perms = self.permissions[authname]
 
         for deferred in deferreds:
             deferred.callback(perms)
@@ -137,6 +139,8 @@ class Auth(command.CommandPluginSuperclass):
 
             for deferred in deferreds:
                 deferred.callback([])
+
+            del self.waiting[hostmask]
 
 
     def _get_permissions(self, hostmask):
@@ -177,7 +181,7 @@ class Auth(command.CommandPluginSuperclass):
 
     def _save(self):
         # Make a copy... don't store the defaultdict (probably wouldn't matter though)
-        self.config['permissions'] = dict(self.permissions)
+        self.config['perms'] = dict(self.permissions)
         self.pluginboss.save()
 
     ### The command plugin callbacks, installed above
@@ -186,7 +190,7 @@ class Auth(command.CommandPluginSuperclass):
         groupdict = match.groupdict()
         name = groupdict['name']
         perm = groupdict['perm']
-        self.config['perms'][name].append(perm)
+        self.permissions[name].append(perm)
         self._save()
         event.reply("Permission %s granted for user %s" % (perm, name))
 
@@ -195,8 +199,8 @@ class Auth(command.CommandPluginSuperclass):
         name = groupdict['name']
         perm = groupdict['perm']
         try:
-            self.config['perms'][name].remove(perm)
-        except (KeyError, ValueError):
+            self.permissions[name].remove(perm)
+        except ValueError:
             # keyerror if the user doesn't have any, valueerror if the user has
             # some but not this one
             event.reply("User %s doesn't have permission %s!" % (name, perm))
@@ -205,11 +209,29 @@ class Auth(command.CommandPluginSuperclass):
             event.reply("Permission %s revoked for user %s" % (perm, name))
 
     def permission_list(self, event, match):
-        name = match.groupdict()['name']
-        event.reply("User %s has permissions %s" % (name, self.config['perms'].get(name, [])))
+        name = match.groupdict().get('name', None)
+        if name:
+            event.reply("User %s has permissions %s" % (name, self.config['perms'].get(name, [])))
+        else:
+            # Get info about the current user
+            def callback(perms):
+                # At this point a whois has been performed. If the user is
+                # identified, they should be in the list
+                if event.user in self.authd_users:
+                    msg = "You are identified as %s " % self.authd_users[event.user]
+                    if perms:
+                        msg += "and have the following permissions: %s" % ", ".join(perms)
+                    else:
+                        msg += "but don't have any special permissions =("
+                else:
+                    msg = "You are not identified. Try logging in to NickServ"
+                event.reply(msg)
+
+            deferred = event.get_permissions()
+            deferred.addCallback(callback)
 
     ### Reload event
     def reload(self):
         super(Auth, self).reload()
-        self.permissions = defaultdict(set)
-        self.permissions.update(self.config.get('permissiosn', {}))
+        self.permissions = defaultdict(list)
+        self.permissions.update(self.config.get('perms', {}))

@@ -5,22 +5,22 @@ class PluginController(CommandPluginSuperclass):
     def start(self):
         super(PluginController, self).start()
 
-        self.install_command(r"plugin load (?P<plugin>[\w.]+)$",
+        self.install_command(r"plugins? load (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.load_plugin)
-        self.install_command(r"plugin (unload|remove) (?P<plugin>[\w.]+)$",
+        self.install_command(r"plugins? (unload|remove) (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.unload_plugin)
-        self.install_command(r"plugin reload (?P<plugin>[\w.]+)$",
+        self.install_command(r"plugins? reload (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.reload_plugin)
-        self.install_command(r"plugin chkconfig on (?P<plugin>[\w.]+)$",
+        self.install_command(r"plugins? chkconfig on (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.set_on_startup)
-        self.install_command(r"plugin chkconfig off (?P<plugin>[\w.]+)$",
+        self.install_command(r"plugins? chkconfig off (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.remove_from_startup)
-        self.install_command(r"plugin list$",
+        self.install_command(r"plugins? list$",
                 None,
                 self.list_plugins)
 

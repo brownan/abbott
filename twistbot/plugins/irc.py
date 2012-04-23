@@ -1,3 +1,5 @@
+from functools import wraps
+
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol
 from twisted.internet.ssl import ClientContextFactory
@@ -7,6 +9,22 @@ from ..pluginbase import BotPlugin
 from ..transport import Event
 from ..command import CommandPluginSuperclass
 
+def decode_args(func):
+    """Decorator that decodes each bytestring arg of func with UTF-8 into a
+    unicode string
+
+    """
+    @wraps(func)
+    def newfunc(*args, **kwargs):
+        newargs = [x.decode("UTF-8") if isinstance(x, str) else x for x in args]
+        newkwargs = {}
+        for key in kwargs:
+            if isinstance(kwargs[key], "UTF-8"):
+                newkwargs[key] = kwargs[key].decode("UTF-8")
+            else:
+                newkwargs[key] = kwargs[key]
+        return func(*newargs, **newkwargs)
+    return newfunc
 
 class IRCBot(irc.IRCClient):
 
@@ -41,6 +59,7 @@ class IRCBot(irc.IRCClient):
 
     ### The following are things that happen to us
 
+    @decode_args
     def joined(self, channel):
         """We have joined a channel"""
         log.msg("Joined channel %s" % channel)
@@ -50,6 +69,7 @@ class IRCBot(irc.IRCClient):
             self.factory.config['channels'].append(channel)
             self.factory.pluginboss.save()
 
+    @decode_args
     def left(self, channel):
         """We have left a channel"""
         self.factory.broadcast_message("irc.on_part", channel=channel)
@@ -60,6 +80,7 @@ class IRCBot(irc.IRCClient):
 
     ### Things we see other users doing or observe about the channel
 
+    @decode_args
     def privmsg(self, user, channel, message):
         """Someone sent us a private message or we received a channel
         message.
@@ -68,11 +89,13 @@ class IRCBot(irc.IRCClient):
         self.factory.broadcast_message("irc.on_privmsg",
                 user=user, channel=channel, message=message)
 
+    @decode_args
     def noticed(self, user, channel, message):
         """Received a notice. This is like a privmsg, but distinct."""
         self.factory.broadcast_message("irc.on_notice",
                 user=user, channel=channel, message=message)
 
+    @decode_args
     def modeChanged(self, user, channel, set, modes, args):
         """A mode has changed on a user or a channel.
 
@@ -89,35 +112,43 @@ class IRCBot(irc.IRCClient):
         self.factory.broadcast_message("irc.on_mode_change",
                 user=user, chan=channel, set=set, modes=modes, args=args)
 
+    @decode_args
     def userJoined(self, user, channel):
         self.factory.broadcast_message("irc.on_user_joined",
                 uesr=user, channel=channel)
 
+    @decode_args
     def userLeft(self, user, channel):
         self.factory.broadcast_message("irc.on_user_part",
                 user=user, channel=channel)
 
+    @decode_args
     def userQuit(self, user, message):
         self.factory.broadcast_message("irc.on_user_quit",
                 user=user, message=message)
 
+    @decode_args
     def userKicked(self, kickee, channel, kicker, message):
         self.factory.broadcast_message("irc.on_user_kick",
                 kickee=kickee, channel=channel, kicker=kicker, message=message)
 
+    @decode_args
     def action(self, user, channel, data):
         """User performs an action on the channel"""
         self.factory.broadcast_message("irc.on_action",
                 user=user, channel=channel, data=data)
 
+    @decode_args
     def topicUpdated(self, user, channel, newtopic):
         self.factory.broadcast_message("irc.on_topic_updated",
                 user=user, channel=channel, newtopic=newtopic)
 
+    @decode_args
     def userRenamed(self, oldnick, newnick):
         self.factory.broadcast_message("irc.on_nick_change",
                 oldnick=oldnick, newnick=newnick)
 
+    @decode_args
     def irc_unknown(self, prefix, command, params):
         """This hooks into all sorts of miscelaneous things the server sends
         us, including whois replies
@@ -174,8 +205,9 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
             'irc.do_topic':         ('topic',   ('channel', 'topic')),
             'irc.do_mode':          ('mode',    ('chan','set','modes','limit','user','mask')),
             'irc.do_say':           ('say',     ('channel', 'message', 'length')),
+            # This is just privmsg. It can send to channels or users
             'irc.do_msg':           ('msg',     ('user', 'message', 'legnth')),
-            'irc.do_notice':        ('notice',  ('notice', 'user', 'message')),
+            'irc.do_notice':        ('notice',  ('user', 'message')),
             'irc.do_away':          ('away',    ('away', 'message')),
             'irc.do_back':          ('back',    ()),
             'irc.do_whois':         ('whois',   ('nickname', 'server')),
@@ -188,7 +220,10 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         kwargs = {}
         for argname in methodargs:
             try:
-                kwargs[argname] = getattr(event, argname)
+                arg = getattr(event, argname)
+                if isinstance(arg, unicode):
+                    arg = arg.encode("UTF-8")
+                kwargs[argname] = arg
             except AttributeError:
                 pass
 
@@ -220,6 +255,10 @@ class IRCController(CommandPluginSuperclass):
         self.help_msg("nick",
                 "'nick <newnick>' Changes the nickname of the bot",
                 permission="irc.control")
+
+        self.install_command(r"echo (?P<msg>.*)$",
+                None,
+                self.echo)
 
     def join(self, event, match):
         channel = match.groupdict()['channel']
@@ -260,3 +299,7 @@ class IRCController(CommandPluginSuperclass):
         self.pluginboss.config['plugin_config']['irc.IRCBotPlugin']['nick'] = newnick
         self.pluginboss.save()
         self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].reload()
+
+    def echo(self, event, match):
+        msg = match.groupdict()['msg']
+        event.reply(msg)

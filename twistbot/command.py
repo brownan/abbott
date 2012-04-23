@@ -147,11 +147,16 @@ class CommandPluginSuperclass(BotPlugin):
         """A user has issued a command. We still have to check permissions"""
         # Now create a reply method and add it to the event object
 
-        def reply(msg):
+        def reply(msg, userprefix=True, notice=True):
+            if notice:
+                eventname = "irc.do_notice"
+            else:
+                eventname = "irc.do_msg"
             nick = event.user.split("!",1)[0]
-            msg = "%s: %s" % (nick, msg)
+            if userprefix:
+                msg = "%s: %s" % (nick, msg)
             channel = event.channel if event.channel.startswith("#") else nick
-            newevent = Event("irc.do_msg", user=channel, message=msg)
+            newevent = Event(eventname, user=channel, message=msg)
             self.transport.send_event(newevent)
         event.reply = reply
 
