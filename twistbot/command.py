@@ -1,12 +1,30 @@
+# encoding: UTF-8
 import re
 from collections import namedtuple
+import random
 
 from twisted.python import log
+from twisted.internet import reactor
 
 from .pluginbase import BotPlugin
 from .transport import Event
 
 CommandTuple = namedtuple("CommandTuple", ['re', 'permission', 'callback'])
+
+def has_permission(user_perms, required_perm):
+    """If one of the user's permissions grant access to required_perm, return
+    True. Otherwise, return False
+
+    """
+    for perm in user_perms:
+        # does perm permit required_perm?
+        # Turn it into a regular expression where * captures one or more
+        # characters
+        perm_parts = [re.escape(x) for x in perm.split("*")]
+        perm_match_str = ".+".join(perm_parts)
+        if re.match(perm_match_str, required_perm):
+            return True
+    return False
 
 class CommandPluginSuperclass(BotPlugin):
     """This class is meant to be a superclass of plugins that wish to use the
@@ -107,6 +125,11 @@ class CommandPluginSuperclass(BotPlugin):
         self.install_catchall(formatstr, permission, callback)
 
     def on_event_irc_on_privmsg(self, event):
+        """When a message comes in, we check if it matches against any
+        installed commands. If so, call self.__do_command() to check
+        permissions and then call the command's installed callback.
+
+        """
         # Check for all the different prefixes or ways a line could contain a
         # command. If one of them matches, dispatch into self.__do_command()
 
@@ -146,30 +169,18 @@ class CommandPluginSuperclass(BotPlugin):
 
 
     def __do_command(self, match, callbacktuple, event):
-        """A user has issued a command. We still have to check permissions"""
-        # Now create a reply method and add it to the event object
+        """Some user has issued a command, and the command matched a registered command for this plugin.
 
-        def reply(msg, userprefix=True, notice=False):
-            if notice:
-                eventname = "irc.do_notice"
-            else:
-                eventname = "irc.do_msg"
-            nick = event.user.split("!",1)[0]
-            
-            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+        We still don't know if the user is auth'd, or what permissions the user
+        has, so this method does both of those things before calling the
+        callback function registered for this command.
 
-            if userprefix and mynick != event.channel:
-                # Never prefix the user if this is a PM, otherwise obey the
-                # request or the default
-                msg = "%s: %s" % (nick, msg)
-
-            # If it was sent to us directly (channel == mynick) then send it
-            # directly back. Otherwise send it to the originating channel
-            channel = event.channel if event.channel != mynick else nick
-
-            newevent = Event(eventname, user=channel, message=msg)
-            self.transport.send_event(newevent)
-        event.reply = reply
+        This function boils down to calling the get_permissions() function that
+        the Auth plugin has inserted into the event object, and providing the
+        resulting deferred a callback that checks the permission and either
+        calls the command's callback or leaves a witty response.
+        
+        """
 
         if callbacktuple.permission is None:
             # This command does not require permission. No need to check the
@@ -182,19 +193,15 @@ class CommandPluginSuperclass(BotPlugin):
         def check_permissions(perms):
             # User has permission perms, a list of permissions
             # We require the user to have callbacktuple.permission
-
-            for perm in perms:
-                # Does the user's permission `perm` permit
-                # `callbacktuple.permission`?
-                perm_parts = [re.escape(x) for x in perm.split("*")]
-                perm_match_str = ".+".join(perm_parts)
-                if re.match(perm_match_str, callbacktuple.permission):
-                    # Successful match
-                    log.msg("User %s is auth'd with %s to perform %s" % (event.user, perm, callbacktuple.callback))
-                    callbacktuple.callback(event, match)
-                    break
-                else:
-                    log.msg("User %s does not have permissions for %s" % (event.user, callbacktuple.callback))
+            if has_permission(perms, callbacktuple.permission):
+                log.msg("User %s is auth'd to perform %s" % (event.user, callbacktuple.callback))
+                callbacktuple.callback(event, match)
+            else:
+                log.msg("User %s does not have permissions for %s" % (event.user, callbacktuple.callback))
+                replies = self.pluginboss.config.get('command',{}).get('denied_msgs',[])
+                if not replies:
+                    replies = ["Sorry, you don't have access to that command"]
+                reactor.callLater(random.uniform(0.5,2), event.reply, random.choice(replies), userprefix=False, notice=False)
 
 
         deferred = event.get_permissions()

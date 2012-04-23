@@ -348,3 +348,38 @@ class IRCController(CommandPluginSuperclass):
     def echo(self, event, match):
         msg = match.groupdict()['msg']
         event.reply(msg)
+
+class ReplyInserter(BotPlugin):
+    """This plugin's function is to insert a reply() function to each incoming
+    irc.on_privmsg event. It is required for a lot of functionality, including
+    all Command-derived plugins, so you should probably have this activated!
+
+    """
+    def start(self):
+        super(ReplyInserter, self).start()
+
+        self.install_middleware("irc.on_privmsg")
+
+    def on_middleware_irc_on_privmsg(self, event):
+        def reply(msg, userprefix=True, notice=False):
+            if notice:
+                eventname = "irc.do_notice"
+            else:
+                eventname = "irc.do_msg"
+            nick = event.user.split("!",1)[0]
+            
+            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+
+            if userprefix and mynick != event.channel:
+                # Never prefix the user if this is a PM, otherwise obey the
+                # request or the default
+                msg = "%s: %s" % (nick, msg)
+
+            # If it was sent to us directly (channel == mynick) then send it
+            # directly back. Otherwise send it to the originating channel
+            channel = event.channel if event.channel != mynick else nick
+
+            newevent = Event(eventname, user=channel, message=msg)
+            self.transport.send_event(newevent)
+        event.reply = reply
+        return event

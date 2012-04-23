@@ -68,6 +68,7 @@ I'll create a new one for you now""")
                         'irc.IRCBotPlugin',
                         'plugincontroller.PluginController',
                         'irc.IRCController',
+                        'irc.ReplyInserter',
                         ],
                     },
                 'plugin_config': {
