@@ -9,6 +9,12 @@ from ..pluginbase import BotPlugin
 from ..transport import Event
 from ..command import CommandPluginSuperclass
 
+def decode_utf8_or_88591(s):
+    try:
+        return s.decode("UTF-8")
+    except UnicodeDecodeError:
+        return s.decode("CP1252", 'replace')
+
 def decode_args(func):
     """Decorator that decodes each bytestring arg of func with UTF-8 into a
     unicode string
@@ -16,11 +22,11 @@ def decode_args(func):
     """
     @wraps(func)
     def newfunc(*args, **kwargs):
-        newargs = [x.decode("UTF-8") if isinstance(x, str) else x for x in args]
+        newargs = [decode_utf8_or_88591(x) if isinstance(x, str) else x for x in args]
         newkwargs = {}
         for key in kwargs:
-            if isinstance(kwargs[key], "UTF-8"):
-                newkwargs[key] = kwargs[key].decode("UTF-8")
+            if isinstance(kwargs[key], str):
+                newkwargs[key] = decode_utf8_or_88591(kwargs[key])
             else:
                 newkwargs[key] = kwargs[key]
         return func(*newargs, **newkwargs)
