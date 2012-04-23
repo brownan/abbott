@@ -199,6 +199,7 @@ class BotPlugin(object):
         method = getattr(self, "on_middleware_%s" % event.eventtype.replace(".","_"), None)
         if method:
             return method(event)
+        return event
 
     ### Convenience method for use by the plugin to install event listeners
     def install_middleware(self, matchstr):

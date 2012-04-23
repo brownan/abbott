@@ -15,8 +15,6 @@ class Auth(command.CommandPluginSuperclass):
     certain irc events, installs a get_permissions() callback which can be used
     to query for permissions the user has.
     
-    Depends on the command plugin for online permission tweaking.
-    
     """
     def start(self):
         super(Auth, self).start()
@@ -144,11 +142,17 @@ class Auth(command.CommandPluginSuperclass):
 
 
     def _get_permissions(self, hostmask):
-        """Send a whois to the server or a AAC to nickserv to get the account
-        that "user" is using, then lookup permissions based on that.
+        """This function is installed on supported events as
+        event.get_permissions(). It is partially evaluated with the hostmask,
+        so you don't need to provide the hostmask when you call it from the
+        event object.
 
-        This function returns a Deferred object. Its callbacks will be called
-        when the answer is ready.
+        It returns a deferred object. The parameter to the deferred callback is
+        a list of permissions the user has, or an empty list of the user does
+        not have any permissions or the user could not be identified.
+        
+        This method sends a whois to the server and looks for an IRC 330
+        message indicating the user's authname
 
         """
         if hostmask in self.authd_users:

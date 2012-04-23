@@ -159,7 +159,7 @@ class IRCBot(irc.IRCClient):
     @decode_args
     def userJoined(self, user, channel):
         self.factory.broadcast_message("irc.on_user_joined",
-                uesr=user, channel=channel)
+                user=user, channel=channel)
 
     @decode_args
     def userLeft(self, user, channel):
@@ -240,7 +240,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
             return
 
         # Maps event names to (method names, arguments) that should be called
-        # on the client protocol object
+        # on the client protocol object.
         events = {
             'irc.do_join_channel':  ('join',    ('channel',)),
             'irc.do_leave_channel':  ('leave',   ('channel',)),
@@ -265,8 +265,6 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         for argname in methodargs:
             try:
                 arg = getattr(event, argname)
-                if isinstance(arg, unicode):
-                    arg = arg.encode("UTF-8")
                 kwargs[argname] = arg
             except AttributeError:
                 pass
