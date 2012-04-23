@@ -32,7 +32,45 @@ def decode_args(func):
         return func(*newargs, **newkwargs)
     return newfunc
 
+def encode_args(func):
+    """Opposite of decode_args, decorates outgoing functions"""
+    @wraps(func)
+    def newfunc(*args, **kwargs):
+        newargs = [x.encode("UTF-8") if isinstance(x, unicode) else x for x in args]
+        newkwargs = {}
+        for key in kwargs:
+            if isinstance(kwargs[key], unicode):
+                newkwargs[key] = kwargs[key].encode("UTF-8")
+            else:
+                newkwargs[key] = kwargs[key]
+        return func(*newargs, **newkwargs)
+    return newfunc
+
 class IRCBot(irc.IRCClient):
+
+    def __init__(self, *args, **kwargs):
+
+        # Make sure no unicode strings leak out
+        outgoing_funcs = [
+                "join",
+                "leave",
+                "kick",
+                "invite",
+                "topic",
+                "mode",
+                "say",
+                "msg",
+                "notice",
+                "away",
+                "back",
+                "whois",
+                "setNick",
+                "quit",
+                ]
+        for funcname in outgoing_funcs:
+            decorated_func = encode_args(getattr(self, funcname))
+            setattr(self, funcname, decorated_func)
+
 
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
     ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS
