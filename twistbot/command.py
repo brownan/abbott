@@ -122,7 +122,8 @@ class CommandPluginSuperclass(BotPlugin):
         with this will *only* be called if no other command from this plugin is
         matched.
 
-        This is the preferred way to install "help" commands.
+        This is used primarily for "help" messages. See help_msg() for a more
+        convenient way to define help messages.
 
         """
         self.__catchalls.append(
@@ -132,6 +133,23 @@ class CommandPluginSuperclass(BotPlugin):
     def help_msg(self, formatstr, permission, helpstr):
         """A helpful shortcut for help messages that installs a catchall
         callback that simply replies with the given help string.
+
+        This is intended to catch commands that don't have all the paramters
+        specified. For example, if your command is:
+
+            mycommand (?P<opt1>\w+) (P<opt2>\w+)$
+
+        Then you would probably want to define a help message that matches::
+
+            mycommand
+
+        that way any command starting with "mycommand" that doesn't match the
+        real command will display the help.
+
+        This method also adds an implicit (help )? to the beginning of the
+        format string, so that one can explicitly request the help for a
+        command. This is especially useful for commands that don't take
+        parameters.
         """
         def callback(event, match):
             """This function gets called when a user issues a command that
@@ -142,7 +160,7 @@ class CommandPluginSuperclass(BotPlugin):
         # Always display the help, even if the user doesn't have the
         # permissions. In the future we may display a different help text if
         # the user doesn't have permissions.
-        self.install_catchall(formatstr, None, callback)
+        self.install_catchall("(help )?(?:" + formatstr+")", None, callback)
 
     def on_event_irc_on_privmsg(self, event):
         """When a message comes in, we check if it matches against any

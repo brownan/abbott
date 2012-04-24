@@ -8,37 +8,53 @@ class PluginController(CommandPluginSuperclass):
         self.install_command(r"plugins? load (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.load_plugin)
-        self.help_msg("plugin load",
+        self.help_msg("plugins? load",
                 "plugin.control",
                 "'plugin load <plugin name>' Loads the given plugin. Assumes format modulename.classname for some module in the plugins package")
+
         self.install_command(r"plugins? (unload|remove) (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.unload_plugin)
-        self.help_msg("plugin (unload|remove)",
+        self.help_msg("plugins? (unload|remove)",
                 "plugin.control",
                 "'plugin unload <plugin name>' Unloads the given plugin")
+
         self.install_command(r"plugins? reload (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.reload_plugin)
-        self.help_msg("plugin reload",
+        self.help_msg("plugins? reload",
                 "plugin.control",
                 "'plugin reload <plugin name>' Reloads the plugin's module and starts it, unloading first if necessary")
+
+        self.install_command(r"plugins? reloadall$",
+                "plugin.control",
+                self.reload_all)
+        self.help_msg("plugins? reloadall",
+                "plugin.control",
+                "'plugin reloadall' reloads all plugins except the IRC plugin",
+                )
+
         self.install_command(r"plugins? chkconfig on (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.set_on_startup)
-        self.help_msg("plugin chkconfig",
-                "plugin.control",
-                "'plugin chkconfig (on|off) <plugin name>' Adds or removes the plugin from the startup configuration")
         self.install_command(r"plugins? chkconfig off (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.remove_from_startup)
+        self.help_msg("plugins? chkconfig",
+                "plugin.control",
+                "'plugin chkconfig (on|off) <plugin name>' Adds or removes the plugin from the startup configuration")
+
+
         self.install_command(r"plugins? list$",
                 None,
                 self.list_plugins)
+        self.help_msg("plugins? list",
+                None,
+                "'plugin list' Lists all currently loaded plugins")
 
         self.help_msg("plugin",
                 None,
-                "'plugin <command> [options]' Possible plugin commands: load, unload, reload, chkconfig on, chkconfig off, list")
+                "'plugin <command> [options]' Possible plugin commands: load, unload, reload, reloadall, chkconfig on, chkconfig off, list")
 
         self.define_command("plugin")
 
@@ -87,6 +103,24 @@ class PluginController(CommandPluginSuperclass):
             raise
 
         event.reply("Plugin %s reloaded and running" % plugin_name)
+
+    def reload_all(self, event, match):
+        for plugin_name in self.pluginboss.loaded_plugins.keys():
+            if plugin_name == "irc.IRCBotPlugin":
+                continue
+
+            try:
+                self.pluginboss.unload_plugin(plugin_name)
+            except Exception:
+                event.reply("Something went wrong unloading %s. Check the error log for a traceback" % plugin_name)
+                log.err("Error unloading %s" % plugin_name)
+
+            try:
+                self.pluginboss.load_plugin(plugin_name, reload_first=True)
+            except Exception:
+                event.reply("Something went wrong reloading %s. Check the error log for a traceback" % plugin_name)
+                log.err("Error reloading %s" % plugin_name)
+        event.reply("Done")
 
 
 

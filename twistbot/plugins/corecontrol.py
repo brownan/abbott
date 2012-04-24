@@ -34,3 +34,4 @@ class Help(CommandPluginSuperclass):
                 pass
 
         event.reply("Defined commands: %s" % ", ".join(commands))
+        event.reply("Use 'help <command>' for more information about a command")

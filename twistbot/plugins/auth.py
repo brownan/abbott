@@ -56,11 +56,11 @@ class Auth(command.CommandPluginSuperclass):
         self.install_command(r"whoami$",
                 None,
                 self.permission_list)
-        self.help_msg("permission list|whoami",
+        self.help_msg("permissions? list|whoami",
                 None,
                 "'permission list [authname]' Lists the permissions granted to the given or current user")
 
-        self.help_msg("permission",
+        self.help_msg("permissions?",
                 None,
                 "'permission <command> [options]' Possible permission commands: add, revoke, list")
 
