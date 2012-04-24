@@ -39,10 +39,16 @@ class Auth(command.CommandPluginSuperclass):
         self.install_command(r"permissions? add (?P<name>\w+) (?P<perm>[\w.\*]+)$",
                 "auth.edit_permissions",
                 self.permission_add)
+        self.help_msg("permissions? add",
+                "auth.edit_permissions",
+                "'permission add <authname> <permission>' Grants a user the specified permission")
 
         self.install_command(r"permissions? revoke (?P<name>\w+) (?P<perm>[\w.\*]+)$",
                 "auth.edit_permissions",
                 self.permission_revoke)
+        self.help_msg("permissions? revoke",
+                "auth.edit_permissions",
+                "'permission revoke <authname> <permission>' Revokes the specified permission from the user")
 
         self.install_command(r"permissions? list( (?P<name>[\w.]+))?$",
                 None,
@@ -50,6 +56,15 @@ class Auth(command.CommandPluginSuperclass):
         self.install_command(r"whoami$",
                 None,
                 self.permission_list)
+        self.help_msg("permission list|whoami",
+                None,
+                "'permission list [authname]' Lists the permissions granted to the given or current user")
+
+        self.help_msg("permission",
+                None,
+                "'permission <command> [options]' Possible permission commands: add, revoke, list")
+
+        self.define_command('permission')
 
     def received_middleware_event(self, event):
         """For events that are applicable, install a handler one can call to

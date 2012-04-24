@@ -281,26 +281,32 @@ class IRCController(CommandPluginSuperclass):
                 "irc.control",
                 self.join)
         self.help_msg("join",
-                "'join <channel>' Joins an IRC channel",
-                permission="irc.control")
+                "irc.control",
+                "'join <channel>' Joins an IRC channel")
 
         self.install_command(r"(part|leave)( (?P<channel>#\w+))?$",
                 "irc.control",
                 self.part)
         self.help_msg("part",
-                "'part [channel]' Leaves the current or specified IRC channel",
-                permission="irc.control")
+                "irc.control",
+                "'part [channel]' Leaves the current or specified IRC channel")
 
         self.install_command(r"nick (?P<newnick>[\w-]+)",
                 "irc.control",
                 self.nickchange)
         self.help_msg("nick",
-                "'nick <newnick>' Changes the nickname of the bot",
-                permission="irc.control")
+                "irc.control",
+                "'nick <newnick>' Changes the nickname of the bot")
 
         self.install_command(r"echo (?P<msg>.*)$",
                 None,
                 self.echo)
+        self.help_msg("echo",
+                None,
+                "'echo <echo msg>' Echo a message back to the channel")
+
+        for c in ['join','part','nick','echo']:
+            self.define_command(c)
 
     def join(self, event, match):
         channel = match.groupdict()['channel']

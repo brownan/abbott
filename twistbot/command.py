@@ -2,6 +2,7 @@
 import re
 from collections import namedtuple
 import random
+from itertools import chain
 
 from twisted.python import log
 from twisted.internet import reactor
@@ -16,6 +17,8 @@ def has_permission(user_perms, required_perm):
     True. Otherwise, return False
 
     """
+    if required_perm is None:
+        return True
     for perm in user_perms:
         # does perm permit required_perm?
         # Turn it into a regular expression where * captures one or more
@@ -65,9 +68,19 @@ class CommandPluginSuperclass(BotPlugin):
         self.__callbacks = []
         self.__catchalls = []
 
+        self.commandlist = []
+
     def start(self):
         super(CommandPluginSuperclass, self).start()
         self.listen_for_event("irc.on_privmsg")
+
+    def define_command(self, cmdname):
+        """This is purely for the help plugin so it knows what commands this
+        plugin defines. Call this for each top level command and it will be
+        listed in the output of the "help" command if the help plugin is
+        installed
+        """
+        self.commandlist.append(cmdname)
 
     def install_command(self, formatstr, permission, callback):
         """Install a command.
@@ -116,18 +129,29 @@ class CommandPluginSuperclass(BotPlugin):
                 CommandTuple(re.compile(formatstr), permission, callback)
                 )
 
-    def help_msg(self, formatstr, helpstr, permission=None):
+    def help_msg(self, formatstr, permission, helpstr):
         """A helpful shortcut for help messages that installs a catchall
         callback that simply replies with the given help string.
         """
         def callback(event, match):
+            """This function gets called when a user issues a command that
+            doesn't match any installed commands but does match `formatstr`.
+
+            """
             event.reply("Usage: " + helpstr)
-        self.install_catchall(formatstr, permission, callback)
+        # Always display the help, even if the user doesn't have the
+        # permissions. In the future we may display a different help text if
+        # the user doesn't have permissions.
+        self.install_catchall(formatstr, None, callback)
 
     def on_event_irc_on_privmsg(self, event):
         """When a message comes in, we check if it matches against any
         installed commands. If so, call self.__do_command() to check
         permissions and then call the command's installed callback.
+
+        This checks each command, and then each fallback command. If a command
+        matches, the others are disregarded; only the first matching command is
+        executed.
 
         """
         # Check for all the different prefixes or ways a line could contain a
@@ -137,13 +161,14 @@ class CommandPluginSuperclass(BotPlugin):
         # below
         nick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
 
-        for callbacktuple in self.__callbacks:
+        for callbacktuple in chain(self.__callbacks, self.__catchalls):
             # If it was a private message, match against the entire message and
             # disregard the other ones
             if event.channel == nick:
                 match = callbacktuple.re.match(event.message)
                 if match:
                     self.__do_command(match, callbacktuple, event)
+                    return
                 continue
 
             # the configured prefix
@@ -152,6 +177,7 @@ class CommandPluginSuperclass(BotPlugin):
                 match = callbacktuple.re.match(msg)
                 if match:
                     self.__do_command(match, callbacktuple, event)
+                    return
 
             # The global prefix
             if self.__globalprefix is not None and event.message.startswith(self.__globalprefix):
@@ -159,6 +185,7 @@ class CommandPluginSuperclass(BotPlugin):
                 match = callbacktuple.re.match(msg)
                 if match:
                     self.__do_command(match, callbacktuple, event)
+                    return
 
             # The current nickname plus a colon
             if event.message.startswith(nick + ":"):
@@ -166,6 +193,7 @@ class CommandPluginSuperclass(BotPlugin):
                 match = callbacktuple.re.match(msg)
                 if match:
                     self.__do_command(match, callbacktuple, event)
+                    return
 
 
     def __do_command(self, match, callbacktuple, event):

@@ -8,21 +8,39 @@ class PluginController(CommandPluginSuperclass):
         self.install_command(r"plugins? load (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.load_plugin)
+        self.help_msg("plugin load",
+                "plugin.control",
+                "'plugin load <plugin name>' Loads the given plugin. Assumes format modulename.classname for some module in the plugins package")
         self.install_command(r"plugins? (unload|remove) (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.unload_plugin)
+        self.help_msg("plugin (unload|remove)",
+                "plugin.control",
+                "'plugin unload <plugin name>' Unloads the given plugin")
         self.install_command(r"plugins? reload (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.reload_plugin)
+        self.help_msg("plugin reload",
+                "plugin.control",
+                "'plugin reload <plugin name>' Reloads the plugin's module and starts it, unloading first if necessary")
         self.install_command(r"plugins? chkconfig on (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.set_on_startup)
+        self.help_msg("plugin chkconfig",
+                "plugin.control",
+                "'plugin chkconfig (on|off) <plugin name>' Adds or removes the plugin from the startup configuration")
         self.install_command(r"plugins? chkconfig off (?P<plugin>[\w.]+)$",
                 "plugin.control",
                 self.remove_from_startup)
         self.install_command(r"plugins? list$",
                 None,
                 self.list_plugins)
+
+        self.help_msg("plugin",
+                None,
+                "'plugin <command> [options]' Possible plugin commands: load, unload, reload, chkconfig on, chkconfig off, list")
+
+        self.define_command("plugin")
 
     def load_plugin(self, event, match):
         plugin_name = match.groupdict()['plugin']
