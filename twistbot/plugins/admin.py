@@ -52,6 +52,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 "irc.op.voice",
                 "'.VOICE <nick>' Grants a user voice in the current channel",
                 )
+        self.define_command(".VOICE")
 
         self.install_command("(devoice|DEVOICE) (?P<nick>[^ ]+)$",
                 "irc.op.voice",
@@ -60,12 +61,13 @@ class IRCAdmin(CommandPluginSuperclass):
                 "irc.op.voice",
                 "'.DEVOICE <nick>' Revokes a user's voice in the current channel",
                 )
+        self.define_command(".DEVOICE")
 
         self.install_command(r"op with external command (?P<command>.*)$",
-                "irc.op.configure",
+                "irc.op",
                 self.set_op_external_command)
         self.install_command(r"op with chanserv$",
-                "irc.op.configure",
+                "irc.op",
                 self.set_op_with_chanserv)
 
 

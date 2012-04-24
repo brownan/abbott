@@ -15,56 +15,21 @@ def decode_utf8_or_88591(s):
     except UnicodeDecodeError:
         return s.decode("CP1252", 'replace')
 
-def encode_args(func):
-    """In the initializer of IRCBot, this decorator is applied to all the
-    outgoing IRC methods, encoding any unicode objects passed in with UTF-8
-
-    """
-    @wraps(func)
-    def newfunc(*args, **kwargs):
-        newargs = [x.encode("UTF-8") if isinstance(x, unicode) else x for x in args]
-        newkwargs = {}
-        for key in kwargs:
-            if isinstance(kwargs[key], unicode):
-                newkwargs[key] = kwargs[key].encode("UTF-8")
-            else:
-                newkwargs[key] = kwargs[key]
-        return func(*newargs, **newkwargs)
-    return newfunc
-
 class IRCBot(irc.IRCClient):
-
-    def __init__(self, *args, **kwargs):
-
-        # Make sure no unicode strings leak out
-        outgoing_funcs = [
-                "join",
-                "leave",
-                "kick",
-                "invite",
-                "topic",
-                "mode",
-                "say",
-                "msg",
-                "notice",
-                "away",
-                "back",
-                "whois",
-                "setNick",
-                "quit",
-                ]
-        for funcname in outgoing_funcs:
-            decorated_func = encode_args(getattr(self, funcname))
-            setattr(self, funcname, decorated_func)
-
 
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
     ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS
 
     def lineReceived(self, line):
-        """Decode every incoming line to a unicode object"""
+        """Overrides IRCClient.lineReceived to decode incoming strings to unicode"""
         line = decode_utf8_or_88591(line)
         return irc.IRCClient.lineReceived(self, line)
+
+    def sendLine(self, line):
+        """Overrides IRCClient.sendLine to encode outgoing lines with UTF-8"""
+        if isinstance(line, unicode):
+            line = line.encode("UTF-8")
+        return irc.IRCClient.sendLine(self, line)
 
     def connectionMade(self):
         """This is called by Twisted once the connection has been made, and has
