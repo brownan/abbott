@@ -138,7 +138,12 @@ I'll create a new one for you now""")
         plugin.stop()
 
     def get_plugin_config(self, plugin_name):
-        return self.config['plugin_config'].get(plugin_name, {})
+        try:
+            return self.config['plugin_config'][plugin_name]
+        except KeyError:
+            config = {}
+            self.config['plugin_config'][plugin_name] = config
+            return config
 
 
 class BotPlugin(object):

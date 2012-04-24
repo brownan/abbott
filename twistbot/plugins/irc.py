@@ -16,8 +16,8 @@ def decode_utf8_or_88591(s):
         return s.decode("CP1252", 'replace')
 
 def encode_args(func):
-    """In the initializer, this decorator is applied to all the outgoing IRC
-    methods, encoding any unicode objects passed in with UTF-8
+    """In the initializer of IRCBot, this decorator is applied to all the
+    outgoing IRC methods, encoding any unicode objects passed in with UTF-8
 
     """
     @wraps(func)
