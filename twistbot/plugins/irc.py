@@ -15,25 +15,11 @@ def decode_utf8_or_88591(s):
     except UnicodeDecodeError:
         return s.decode("CP1252", 'replace')
 
-def decode_args(func):
-    """Decorator that decodes each bytestring arg of func with UTF-8 into a
-    unicode string
+def encode_args(func):
+    """In the initializer, this decorator is applied to all the outgoing IRC
+    methods, encoding any unicode objects passed in with UTF-8
 
     """
-    @wraps(func)
-    def newfunc(*args, **kwargs):
-        newargs = [decode_utf8_or_88591(x) if isinstance(x, str) else x for x in args]
-        newkwargs = {}
-        for key in kwargs:
-            if isinstance(kwargs[key], str):
-                newkwargs[key] = decode_utf8_or_88591(kwargs[key])
-            else:
-                newkwargs[key] = kwargs[key]
-        return func(*newargs, **newkwargs)
-    return newfunc
-
-def encode_args(func):
-    """Opposite of decode_args, decorates outgoing functions"""
     @wraps(func)
     def newfunc(*args, **kwargs):
         newargs = [x.encode("UTF-8") if isinstance(x, unicode) else x for x in args]
@@ -75,6 +61,11 @@ class IRCBot(irc.IRCClient):
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
     ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS
 
+    def lineReceived(self, line):
+        """Decode every incoming line to a unicode object"""
+        line = decode_utf8_or_88591(line)
+        return irc.IRCClient.lineReceived(self, line)
+
     def connectionMade(self):
         """This is called by Twisted once the connection has been made, and has
         access to self.factory. This is where we set up callbacks for actions
@@ -103,7 +94,6 @@ class IRCBot(irc.IRCClient):
 
     ### The following are things that happen to us
 
-    @decode_args
     def joined(self, channel):
         """We have joined a channel"""
         log.msg("Joined channel %s" % channel)
@@ -113,7 +103,6 @@ class IRCBot(irc.IRCClient):
             self.factory.config['channels'].append(channel)
             self.factory.pluginboss.save()
 
-    @decode_args
     def left(self, channel):
         """We have left a channel"""
         self.factory.broadcast_message("irc.on_part", channel=channel)
@@ -124,7 +113,6 @@ class IRCBot(irc.IRCClient):
 
     ### Things we see other users doing or observe about the channel
 
-    @decode_args
     def privmsg(self, user, channel, message):
         """Someone sent us a private message or we received a channel
         message.
@@ -133,13 +121,11 @@ class IRCBot(irc.IRCClient):
         self.factory.broadcast_message("irc.on_privmsg",
                 user=user, channel=channel, message=message)
 
-    @decode_args
     def noticed(self, user, channel, message):
         """Received a notice. This is like a privmsg, but distinct."""
         self.factory.broadcast_message("irc.on_notice",
                 user=user, channel=channel, message=message)
 
-    @decode_args
     def modeChanged(self, user, channel, set, modes, args):
         """A mode has changed on a user or a channel.
 
@@ -156,43 +142,35 @@ class IRCBot(irc.IRCClient):
         self.factory.broadcast_message("irc.on_mode_change",
                 user=user, chan=channel, set=set, modes=modes, args=args)
 
-    @decode_args
     def userJoined(self, user, channel):
         self.factory.broadcast_message("irc.on_user_joined",
                 user=user, channel=channel)
 
-    @decode_args
     def userLeft(self, user, channel):
         self.factory.broadcast_message("irc.on_user_part",
                 user=user, channel=channel)
 
-    @decode_args
     def userQuit(self, user, message):
         self.factory.broadcast_message("irc.on_user_quit",
                 user=user, message=message)
 
-    @decode_args
     def userKicked(self, kickee, channel, kicker, message):
         self.factory.broadcast_message("irc.on_user_kick",
                 kickee=kickee, channel=channel, kicker=kicker, message=message)
 
-    @decode_args
     def action(self, user, channel, data):
         """User performs an action on the channel"""
         self.factory.broadcast_message("irc.on_action",
                 user=user, channel=channel, data=data)
 
-    @decode_args
     def topicUpdated(self, user, channel, newtopic):
         self.factory.broadcast_message("irc.on_topic_updated",
                 user=user, channel=channel, newtopic=newtopic)
 
-    @decode_args
     def userRenamed(self, oldnick, newnick):
         self.factory.broadcast_message("irc.on_nick_change",
                 oldnick=oldnick, newnick=newnick)
 
-    @decode_args
     def irc_unknown(self, prefix, command, params):
         """This hooks into all sorts of miscelaneous things the server sends
         us, including whois replies
