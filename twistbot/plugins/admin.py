@@ -100,20 +100,20 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command("topic requireop",
                 "irc.op",
                 self.topic_requireop)
-        #self.help_msg("topic requireop",
-        #        topic_permission,
-        #        "'topic requireop' The bot will acquire OP to change the topic in this channel")
+        self.help_msg("topic requireop",
+                topic_permission,
+                "'topic requireop' The bot will acquire OP to change the topic in this channel")
 
         self.install_command("topic norequireop",
                 "irc.op",
                 self.topic_norequireop)
-        #self.help_msg("topic norequireop",
-        #        topic_permission,
-        #        "'topic norequireop' The bot will not try to acquire OP to change the topic in this channel")
+        self.help_msg("topic norequireop",
+                topic_permission,
+                "'topic norequireop' The bot will not try to acquire OP to change the topic in this channel")
 
         self.help_msg("topic",
                 topic_permission,
-                "'topic <command> [args]' Topic commands: append, insert, remove, undo, requireop, norequireop")
+                "'topic <command> [args]' Topic commands: append, insert, remove, undo")
 
         self.define_command("topic")
 
