@@ -215,7 +215,8 @@ class CommandPluginSuperclass(BotPlugin):
 
 
     def __do_command(self, match, callbacktuple, event):
-        """Some user has issued a command, and the command matched a registered command for this plugin.
+        """Some user has issued a command, and the command matched a registered
+        command for this plugin.
 
         We still don't know if the user is auth'd, or what permissions the user
         has, so this method does both of those things before calling the

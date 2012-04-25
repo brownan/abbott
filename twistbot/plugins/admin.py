@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 import shlex
 from functools import wraps
 
@@ -10,11 +10,9 @@ from twisted.internet import defer
 from ..command import CommandPluginSuperclass
 from ..transport import Event
 
-def check_pm(func):
-    """Checks if the PRIVMSG sent to `channel` is actually a PM, in which
-    case we should disregard it.
-
-    This decorator wraps command callbacks, and makes that check.
+def require_channel(func):
+    """Wraps command callbacks and requires them to be in response to a channel
+    message, not a private message directed to the bot.
 
     """
     @wraps(func)
@@ -25,7 +23,6 @@ def check_pm(func):
         else:
             return func(self, event, match)
     return newfunc
-
 
 class IRCAdmin(CommandPluginSuperclass):
     """A plugin to do various IRC OP-related tasks. The plugin does not keep
@@ -70,6 +67,67 @@ class IRCAdmin(CommandPluginSuperclass):
                 "irc.op",
                 self.set_op_with_chanserv)
 
+        # Topic commands
+        topic_permission = None
+        self.install_command("topic append (?P<text>.+)$",
+                topic_permission,
+                self.topicappend)
+        self.help_msg("topic append",
+                topic_permission,
+                "'topic append <text>' Appends text to the end of the channel topic")
+
+        self.install_command(r"topic insert (?P<pos>[-\d]+) (?P<text>.+)$",
+                topic_permission,
+                self.topicinsert)
+        self.help_msg("topic insert",
+                topic_permission,
+                "'topic insert <pos> <text>' Inserts text into the topic at the given position")
+
+        self.install_command(r"topic remove (?P<pos>[-\d]+)$",
+                topic_permission,
+                self.topicremove)
+        self.help_msg("topic remove",
+                topic_permission,
+                "'topic remove <pos>' Removes the pos'th topic section")
+
+        self.install_command(r"topic undo$",
+                topic_permission,
+                self.topic_undo)
+        self.help_msg("topic undo",
+                topic_permission,
+                "'topic undo' Reverts the topic to the last known channel topic")
+
+        self.install_command("topic requireop",
+                "irc.op",
+                self.topic_requireop)
+        #self.help_msg("topic requireop",
+        #        topic_permission,
+        #        "'topic requireop' The bot will acquire OP to change the topic in this channel")
+
+        self.install_command("topic norequireop",
+                "irc.op",
+                self.topic_norequireop)
+        #self.help_msg("topic norequireop",
+        #        topic_permission,
+        #        "'topic norequireop' The bot will not try to acquire OP to change the topic in this channel")
+
+        self.help_msg("topic",
+                topic_permission,
+                "'topic <command> [args]' Topic commands: append, insert, remove, undo, requireop, norequireop")
+
+        self.define_command("topic")
+
+        # Maps channel names to the last so many topics (not going to fall into
+        # the trap of duplicating my constants in comments!)
+        # (The top most item on the stack should be the current topic. But the
+        # handlers should handle the case that the stack is empty!)
+        self.topic_stack = defaultdict(lambda: deque(maxlen=10))
+        self.listen_for_event("irc.on_topic_updated")
+        if "requiresop" not in self.config:
+            self.config['requiresop'] = []
+            self.pluginboss.save()
+        # set of deferreds waiting for the current topic response in a channel
+        self.topic_waiters = defaultdict(set)
 
         # Maps channel names to a set of deferred objects indicating someone is
         # waiting for op on a channel
@@ -104,7 +162,7 @@ class IRCAdmin(CommandPluginSuperclass):
             log.msg("Relinquishing op")
             self.transport.send_event(deop)
 
-    @check_pm
+    @require_channel
     def kick(self, event, match):
         """A user has issued the kick command. Our job here is to acquire OP
         for this channel and set a callback to issue a kick event
@@ -120,7 +178,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self._send_event_as_op(channel, kickevent, event.reply)
 
-    @check_pm
+    @require_channel
     def voice(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
@@ -134,7 +192,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 )
         log.msg("Voicing %s in %s" % (nick, channel))
         self._send_event_as_op(channel, voiceevent, event.reply)
-    @check_pm
+    @require_channel
     def devoice(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
@@ -234,3 +292,173 @@ class IRCAdmin(CommandPluginSuperclass):
         deferreds = self.waiting_for_op.pop(channel, set())
         for deferred in deferreds:
             deferred.errback("OP request timed out. Check your config and the error log.")
+
+
+    ### Topic methods
+    def on_event_irc_on_topic_updated(self, event):
+        channel = event.channel
+        newtopic = event.newtopic
+        oldtopic = None
+        try:
+            oldtopic = self.topic_stack[channel][-1]
+        except IndexError:
+            pass
+        if newtopic != oldtopic:
+            self.topic_stack[event.channel].append(newtopic)
+            log.msg("Topic updated in %s. Now I know about %s past topics (including this one)" % (event.channel,
+                len(self.topic_stack[event.channel])))
+
+        for d in self.topic_waiters.pop(channel, set()):
+            d.callback(newtopic)
+
+    def _get_change_topic_event(self, channel, to):
+        topicchange = Event("irc.do_topic",
+                channel=channel,
+                topic=to)
+        return topicchange
+
+    def _get_current_topic(self, channel):
+        """Returns a deferred object with the current topic.
+        The callback will be called with the channel topic once it's known. The
+        errback will be called if the topic cannot be determined
+        
+        """
+        topic_stack = self.topic_stack[channel]
+        if topic_stack:
+            return defer.succeed(topic_stack[-1])
+
+        # We need to ask what the topic is. Go ahead and send off that event.
+        log.msg("Sending a request for the current topic since I don't know it")
+        topicrequest = Event("irc.do_topic",
+                channel=channel)
+        self.transport.send_event(topicrequest)
+
+        # Now set up a deferred object that will be called when the topic comes in
+        deferreds = self.topic_waiters[channel]
+        new_d = defer.Deferred()
+
+        if not deferreds:
+            # No current deferreds in the set. Set up a failure callback
+            def failure(_):
+                log.msg("Topic request timed out. Calling errbacks")
+                for d in self.topic_waiters.pop(channel, set()):
+                    d.errback()
+            c = reactor.callLater(10, failure)
+            # Set a success callback to cancel the failure timeout
+            def success(result):
+                log.msg("Topic result came in")
+                c.cancel()
+                return result
+            new_d.addCallback(success)
+
+        deferreds.add(new_d)
+        return new_d
+
+    @require_channel
+    def topicappend(self, event, match):
+        channel = event.channel
+        def callback(currenttopic):
+            currenttopic += " | " + match.groupdict()['text']
+            topicevent = self._get_change_topic_event(channel, currenttopic)
+            if channel in self.config['requiresop']:
+                self._send_event_as_op(chanel,
+                        topicevent,
+                        event.reply)
+            else:
+                self.transport.send_event(topicevent)
+        self._get_current_topic(channel).addCallbacks(callback,
+                lambda _: event.reply("Could not determine current topic"))
+
+    @require_channel
+    def topicinsert(self, event, match):
+        channel = event.channel
+
+        def callback(currenttopic):
+            gd = match.groupdict()
+            pos = int(gd['pos'])
+            text = gd['text']
+
+            topic_parts = [x.strip() for x in currenttopic.split("|")]
+            topic_parts.insert(pos, text)
+
+            newtopic = " | ".join(topic_parts)
+            topicevent = self._get_change_topic_event(channel, newtopic)
+
+            if channel in self.config['requiresop']:
+                self._send_event_as_op(chanel,
+                        topicevent,
+                        event.reply)
+            else:
+                self.transport.send_event(topicevent)
+        self._get_current_topic(channel).addCallbacks(callback,
+                lambda _: event.reply("Could not determine current topic"))
+
+    @require_channel
+    def topicremove(self, event, match):
+        channel = event.channel
+
+        def callback(currenttopic):
+            gd = match.groupdict()
+            pos = int(gd['pos'])
+
+            topic_parts = [x.strip() for x in currenttopic.split("|")]
+            del topic_parts[pos]
+
+            newtopic = " | ".join(topic_parts)
+            topicevent = self._get_change_topic_event(channel, newtopic)
+
+            if channel in self.config['requiresop']:
+                self._send_event_as_op(chanel,
+                        topicevent,
+                        event.reply)
+            else:
+                self.transport.send_event(topicevent)
+        self._get_current_topic(channel).addCallbacks(callback,
+                lambda _: event.reply("Could not determine current topic"))
+
+    @require_channel
+    def topic_undo(self, event, match):
+        channel = event.channel
+
+        topicstack = self.topic_stack[channel]
+        if len(topicstack) < 2:
+            event.reply("I don't know what the topic used to be. Cannot undo =(")
+            return
+        # Pop the current item off
+        topicstack.pop()
+        # Now pop the next item, which will be our new topic
+        newtopic = topicstack.pop()
+
+        topicevent = self._get_change_topic_event(channel, newtopic)
+
+        if channel in self.config['requiresop']:
+            self._send_event_as_op(chanel,
+                    topicevent,
+                    event.reply)
+        else:
+            self.transport.send_event(topicevent)
+
+
+    @require_channel
+    def topic_requireop(self, event, match):
+        channel = event.channel
+        requires_op = self.config["requiresop"]
+        if channel not in requires_op:
+            requires_op.append(channel)
+
+        self.config['requiresop'] = requires_op
+        self.pluginboss.save()
+        event.reply("I will now try to acquire OP before changing the topic in this channel")
+
+
+
+    @require_channel
+    def topic_norequireop(self, event, match):
+        channel = event.channel
+        requires_op = self.config["requiresop"]
+        if channel in requires_op:
+            requires_op.remove(channel)
+
+        self.config['requiresop'] = requires_op
+        self.pluginboss.save()
+        event.reply("I will no longer try to acquire OP before changing the topic in this channel")
