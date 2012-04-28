@@ -88,7 +88,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 self.topicreplace)
         self.help_msg("topic replace",
                 topic_permission,
-                "'topic replace <pos> <text>' Inserts text into the topic at the given position")
+                "'topic replace <pos> <text>' Replaces the given section with the given text")
 
         self.install_command(r"topic remove (?P<pos>-?\d+)$",
                 topic_permission,
