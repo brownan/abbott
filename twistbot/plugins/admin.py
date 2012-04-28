@@ -76,14 +76,21 @@ class IRCAdmin(CommandPluginSuperclass):
                 topic_permission,
                 "'topic append <text>' Appends text to the end of the channel topic")
 
-        self.install_command(r"topic insert (?P<pos>[-\d]+) (?P<text>.+)$",
+        self.install_command(r"topic insert (?P<pos>-?\d+) (?P<text>.+)$",
                 topic_permission,
                 self.topicinsert)
         self.help_msg("topic insert",
                 topic_permission,
                 "'topic insert <pos> <text>' Inserts text into the topic at the given position")
 
-        self.install_command(r"topic remove (?P<pos>[-\d]+)$",
+        self.install_command(r"topic replace (?P<pos>-?\d+) (?P<text>.+)$",
+                topic_permission,
+                self.topicreplace)
+        self.help_msg("topic replace",
+                topic_permission,
+                "'topic replace <pos> <text>' Inserts text into the topic at the given position")
+
+        self.install_command(r"topic remove (?P<pos>-?\d+)$",
                 topic_permission,
                 self.topicremove)
         self.help_msg("topic remove",
@@ -219,7 +226,6 @@ class IRCAdmin(CommandPluginSuperclass):
             log.err("failed because we failed to get OP")
             reply(reason.getErrorMessage())
         def success(_):
-            # Issue a kick request!
             log.msg("OP succeeded, proceeding to issue event %s" % event.__dict__)
             self.transport.send_event(event)
         deferred.addCallbacks(success, fail)
@@ -394,6 +400,35 @@ class IRCAdmin(CommandPluginSuperclass):
                 lambda _: event.reply("Could not determine current topic"))
 
     @require_channel
+    def topicreplace(self, event, match):
+        channel = event.channel
+
+        def callback(currenttopic):
+            gd = match.groupdict()
+            pos = int(gd['pos'])
+            text = gd['text']
+
+            topic_parts = [x.strip() for x in currenttopic.split("|")]
+            try:
+                topic_parts[pos] = text
+            except IndexError:
+                reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
+                return
+
+
+            newtopic = " | ".join(topic_parts)
+            topicevent = self._get_change_topic_event(channel, newtopic)
+
+            if channel in self.config['requiresop']:
+                self._send_event_as_op(chanel,
+                        topicevent,
+                        event.reply)
+            else:
+                self.transport.send_event(topicevent)
+        self._get_current_topic(channel).addCallbacks(callback,
+                lambda _: event.reply("Could not determine current topic"))
+
+    @require_channel
     def topicremove(self, event, match):
         channel = event.channel
 
@@ -402,7 +437,11 @@ class IRCAdmin(CommandPluginSuperclass):
             pos = int(gd['pos'])
 
             topic_parts = [x.strip() for x in currenttopic.split("|")]
-            del topic_parts[pos]
+            try:
+                del topic_parts[pos]
+            except IndexError:
+                reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
+                return
 
             newtopic = " | ".join(topic_parts)
             topicevent = self._get_change_topic_event(channel, newtopic)
