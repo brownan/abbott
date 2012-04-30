@@ -66,9 +66,10 @@ I'll create a new one for you now""")
                     'plugins': [
                         # Good default set of plugins to bootstrap functionality
                         'irc.IRCBotPlugin',
-                        'plugincontroller.PluginController',
                         'irc.IRCController',
                         'irc.ReplyInserter',
+                        'auth.Auth',
+                        'plugincontroller.PluginController',
                         ],
                     },
                 'plugin_config': {
