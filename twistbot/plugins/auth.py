@@ -1,5 +1,6 @@
 from collections import defaultdict
 import functools
+import re
 
 from twisted.python import log
 from twisted.internet import defer, reactor
@@ -33,6 +34,7 @@ class Auth(command.CommandPluginSuperclass):
         # Maps hostmasks to sets of deferred objects that need calling
         self.waiting = defaultdict(set)
 
+        return
         # Install a few commands. These will call the given callback. This
         # functionality is provided by the CommandPlugin class, from which this
         # class inherits. The CommandPlugin will also check permissions.
@@ -83,6 +85,7 @@ class Auth(command.CommandPluginSuperclass):
                 "irc.on_topic_updated",
                 ]:
             event.get_permissions = functools.partial(self._get_permissions, event.user)
+            event.has_permission = functools.partial(self._has_permission, event.user)
 
         return event
 
@@ -197,6 +200,51 @@ class Auth(command.CommandPluginSuperclass):
         reactor.callLater(5, self._fail_request, hostmask)
 
         return deferred
+
+    def _has_permission(self, hostmask, permission):
+        """Asks if the user identified by hostmask has the given permission
+        string `permission`.
+
+        This function is installed as event.has_permission() by the Auth
+        plugin, and is partially evaluated with the hostname, so it takes one
+        parameter: the permission string.
+
+        It returns a deferred object which passes to its callback a boolean
+        value: True for the user has access, and False for the user does not.
+
+        """
+        if permission == None:
+            return defer.succeed(True)
+
+        d = self._get_permissions(hostmask)
+
+        def check_permission(user_perms):
+            for user_perm in user_perms:
+                # Does user_perm satisfy `permission`?
+
+                # Expand the *s to [^.]* and re.escape everything else
+                user_perm = "[^.]*".join(
+                        re.escape(x) for x in user_perm.split("*")
+                        )
+                # The match should conclude with ($|\.) to indicate it must
+                # either match exactly or any sub-permission
+                # for example, the permission
+                #   irc.op
+                # should match
+                #   irc.op
+                #   irc.op.kick
+                #   irc.op.etc
+                # but it should NOT match something like
+                #   irc.open
+                user_perm += r"($|\.)"
+
+                if re.match(user_perm, permission):
+                    return True
+            return False
+
+        # I think I'm finally "getting" twisted deferrs!
+        d.addCallback(check_permission)
+        return d
 
     def _save(self):
         # Make a copy... don't store the defaultdict (probably wouldn't matter though)

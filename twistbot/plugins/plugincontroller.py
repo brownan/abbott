@@ -5,58 +5,64 @@ class PluginController(CommandPluginSuperclass):
     def start(self):
         super(PluginController, self).start()
 
-        self.install_command(r"plugins? load (?P<plugin>[\w.]+)$",
-                "plugin.control",
-                self.load_plugin)
-        self.help_msg("plugins? load",
-                "plugin.control",
-                "'plugin load <plugin name>' Loads the given plugin. Assumes format modulename.classname for some module in the plugins package")
-
-        self.install_command(r"plugins? (unload|remove) (?P<plugin>[\w.]+)$",
-                "plugin.control",
-                self.unload_plugin)
-        self.help_msg("plugins? (unload|remove)",
-                "plugin.control",
-                "'plugin unload <plugin name>' Unloads the given plugin")
-
-        self.install_command(r"plugins? reload (?P<plugin>[\w.]+)$",
-                "plugin.control",
-                self.reload_plugin)
-        self.help_msg("plugins? reload",
-                "plugin.control",
-                "'plugin reload <plugin name>' Reloads the plugin's module and starts it, unloading first if necessary")
-
-        self.install_command(r"plugins? reloadall$",
-                "plugin.control",
-                self.reload_all)
-        self.help_msg("plugins? reloadall",
-                "plugin.control",
-                "'plugin reloadall' reloads all plugins except the IRC plugin",
+        plugingroup = self.install_cmdgroup(
+                grpname="plugin",
+                permission="plugin.control",
+                helptext="Plugin manipulation commands"
                 )
 
-        self.install_command(r"plugins? chkconfig on (?P<plugin>[\w.]+)$",
-                "plugin.control",
-                self.set_on_startup)
-        self.install_command(r"plugins? chkconfig off (?P<plugin>[\w.]+)$",
-                "plugin.control",
-                self.remove_from_startup)
-        self.help_msg("plugins? chkconfig",
-                "plugin.control",
-                "'plugin chkconfig (on|off) <plugin name>' Adds or removes the plugin from the startup configuration")
+        plugingroup.install_command(
+                cmdname="load",
+                argmatch=r"(?P<plugin>[\w.]+)$",
+                callback=self.load_plugin,
+                cmdusage="<plugin name>",
+                helptext="Loads the given plugin. Assumes format modulename.classname for some module in the plugins package",
+                )
 
+        plugingroup.install_command(
+                cmdname="unload",
+                cmdmatch="unload|remove",
+                argmatch=r"(?P<plugin>[\w.]+)$",
+                callback=self.unload_plugin,
+                cmdusage="<plugin name>",
+                helptext="Unloads the given plugin",
+                )
 
-        self.install_command(r"plugins? list$",
-                None,
-                self.list_plugins)
-        self.help_msg("plugins? list",
-                None,
-                "'plugin list' Lists all currently loaded plugins")
+        plugingroup.install_command(
+                cmdname="reload",
+                argmatch=r"(?P<plugin>[\w.]+)$",
+                callback=self.reload_plugin,
+                cmdusage="<plugin name>",
+                helptext="Reloads the plugin's module and starts it, unloading it first if necessary",
+                )
 
-        self.help_msg("plugin",
-                None,
-                "'plugin <command> [options]' Possible plugin commands: load, unload, reload, reloadall, chkconfig on, chkconfig off, list")
+        plugingroup.install_command(
+                cmdname="reloadall",
+                callback=self.reload_all,
+                helptext="reloads all plugins except the IRC plugin",
+                )
 
-        self.define_command("plugin")
+        plugingroup.install_command(
+                cmdname="chkconfig on",
+                argmatch=r"(?P<plugin>[\w.]+)$",
+                callback=self.set_on_startup,
+                cmdusage="<plugin name>",
+                helptext="Adds the plugin to the startup configuration",
+                )
+        plugingroup.install_command(
+                cmdname="chkconfig off",
+                argmatch=r"(?P<plugin>[\w.]+)$",
+                callback=self.remove_from_startup,
+                cmdusage="<plugin name>",
+                helptext="Adds the plugin to the startup configuration",
+                )
+
+        plugingroup.install_command(
+                cmdname="list",
+                permission=None,
+                callback=self.list_plugins,
+                helptext="Lists all currently loaded plugins",
+                )
 
     def load_plugin(self, event, match):
         plugin_name = match.groupdict()['plugin']

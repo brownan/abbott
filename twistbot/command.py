@@ -1,33 +1,184 @@
-# encoding: UTF-8
 import re
 from collections import namedtuple
 import random
-from itertools import chain
 
 from twisted.python import log
 from twisted.internet import reactor
+from twisted.internet import defer
 
 from .pluginbase import BotPlugin
-from .transport import Event
 
-CommandTuple = namedtuple("CommandTuple", ['re', 'permission', 'callback'])
-
-def has_permission(user_perms, required_perm):
-    """If one of the user's permissions grant access to required_perm, return
-    True. Otherwise, return False
+class _CommandGroup(object):
+    """Internal object created by CommandPluginSuperclass.install_cmdgroup()
 
     """
-    if required_perm is None:
-        return True
-    for perm in user_perms:
-        # does perm permit required_perm?
-        # Turn it into a regular expression where * captures one or more
-        # characters
-        perm_parts = [re.escape(x) for x in perm.split("*")]
-        perm_match_str = ".+".join(perm_parts)
-        if re.match(perm_match_str, required_perm):
-            return True
-    return False
+    def __init__(self,
+            grpname,
+            cmdlist,
+            cmdglist,
+            prefix=None,
+            permission=None,
+            helptext=None,
+            ):
+        self.grpname = grpname
+        self.cmdlist = cmdlist
+        self.prefix = prefix
+        self.permission = permission
+
+        if grpname:
+            help_re = re.compile("(?:help )?(?:%s)?%s" % (
+                prefix if prefix else "",
+                re.escape(grpname),
+                ))
+        else:
+            help_re = None
+
+        helplines = []
+        if helptext:
+            helplines.append(helptext)
+        helplines.append("Usage: %s <subcommand> [arguments ...]" % grpname)
+        helplines.append("Use 'help %s <subcommand>' for more information on a subcommand" % grpname)
+
+        self.subcmds = []
+        cmdglist.append(_CommandGroupTuple(
+            grpname=grpname,
+            helpre=help_re,
+            helplines=helplines,
+            subcmds=self.subcmds,
+            ))
+
+    def install_command(self,
+            cmdname,
+            callback,
+            cmdmatch=None,
+            cmdusage=None,
+            argmatch=None,
+            permission=None,
+            prefix=None,
+            helptext=None):
+        """Install a command.
+
+        cmdname is the name of the command, used in command listing and usage
+        text
+
+        callback is the callable to call when the command is invoked. It takes
+        two arguments: the Event object from the request, and a re.Match object
+        from the cmdmatch parameter.
+
+        cmdmatch, if specified, is a regular expression string specifying how
+        to match just the command name (not the arguments). If it is not
+        specified, the cmdname string is used to match the command. It should
+        not have any capturing parenthesis since this will be concatenated with
+        the argument matching regular expression.
+
+        cmdusage, if specified, is the usage text for the command's argumetns.
+        For example, if the command takes two requried arguments and one
+        optional argument, this should be set to something like "<arg1> <arg2>
+        [arg3]"
+
+        argmatch is a regular expression string that matches the arguments of
+        this command. The resulting match object is passed in to the callback.
+        If not specified, the command takes no arguments. You probably want to
+        put a $ at the end of this if given, otherwise any trailing string will
+        still match.
+
+        permission, if given, is the permission required for a user to execute
+        this command. The special string "%c" is replaced by the channel name.
+        If not given, all users are allowed to execute this command.
+
+        prefix is an additional prefix that may be given to have the bot
+        recognize a command. For example, a "ban" command may want to specify a
+        prefix of "." so the standard ban command works, even if "." isn't a
+        normal command trigger for this bot.
+
+        helptext, if given, is displayed after the usage in help messages as a
+        short one-line description of this command.
+
+        """
+        # This is to support empty self.grpname for top-level commands
+        if self.grpname:
+            grpname = self.grpname + " "
+        else:
+            grpname = ""
+
+        # Put together a regular expression string matching the command part of
+        # the message
+        command_str = "%s(?:%s)" % (
+                re.escape(grpname),
+                cmdmatch if cmdmatch else re.escape(cmdname),
+                )
+
+        # Now put together a regular expression string matching the entire
+        # command plus arguments
+        if argmatch:
+            # command takes arguments
+            # Explanation of the (?: |\b):
+            # normally we want to match a space between the command and its
+            # arguments, but to support possibly empty arguments or fancier
+            # regular expressions, we also accept the empty string between the
+            # command and its arguments as long as it's a word boundary. This
+            # probably strictly isn't the right thing to do, but the only thing
+            # this really disallows is having no boundry between the command
+            # and its arguments.
+            commandargs_str = command_str + r"(?: |\b)(?:%s)" % argmatch
+        else:
+            # command doesn't take arguments
+            commandargs_str = command_str + "$"
+
+
+        # Put together a regular expression string matching the entire command
+        # plus the prefix. If this command doesn't give a prefix, go with the
+        # group prefix.
+        prefix = prefix if prefix else self.prefix
+        if prefix is not None:
+            prefix_re = re.compile(re.escape(prefix) + commandargs_str)
+        else:
+            prefix_re = None
+
+        # This should match the command without any arguments and an optional
+        # "help" at the beginning
+        help_re = re.compile("(?:help )?(?:%s)?%s" % (
+            prefix if prefix else "",
+            command_str,
+            ))
+
+        help_str = """Usage: %s%s%s %s\n%s""" % (
+                prefix if prefix else "",
+                grpname,
+                cmdname,
+                cmdusage if cmdusage else "",
+                helptext if helptext else "No documentation provided (you're on your own!)",
+                )
+
+        self.cmdlist.append(_CommandTuple(
+            cmdname="%s%s" % (grpname, cmdname),
+            permission=permission if permission else self.permission,
+            commandre=re.compile(commandargs_str),
+            prefixre=prefix_re,
+            helpre=help_re,
+            callback=callback,
+            helplines=help_str.split("\n"),
+            ))
+        self.subcmds.append(
+                (cmdname,permission if permission else self.permission)
+                )
+
+
+_CommandTuple = namedtuple("_CommandTuple", [
+    "cmdname",
+    "permission",
+    "commandre",
+    "prefixre",
+    "helpre",
+    "callback",
+    "helplines"
+    ])
+_CommandGroupTuple = namedtuple("_CommandGroupTuple", [
+    "grpname",
+    "helpre",
+    "helplines",
+    "subcmds",
+    ])
 
 class CommandPluginSuperclass(BotPlugin):
     """This class is meant to be a superclass of plugins that wish to use the
@@ -35,222 +186,169 @@ class CommandPluginSuperclass(BotPlugin):
 
     It provides several things:
 
-    the install_command() function will listen for commands and dispatch them
-    to the given callback functions. This dispatch automatically verifies
-    authentication.
+    the install_command() function will install a command. This means the
+    plugin will listen to incoming irc.on_privmsg events, determine if it is a
+    command directed at this bot, verify permissions, and then call the
+    callback. See the documentation for the Command() class.
 
-    This plugin overrides on_event_irc_on_privmsg() and start(), so if you
-    implement either function in a subclass, be sure to call the superclass's
-    method!
+    This plugin overrides on_event_irc_on_privmsg(), reload() and start(), so
+    if you implement these functions in a subclass, be sure to call the
+    superclass's method!
 
-    Use of the command functionality in derived plugins requires the use of the
+    Use of the permissions in installed commands requires the use of the
     auth.Auth plugin.
-
-    the prefix attribute, if not None, is a prefix to be added to the format
-    string for commands to this class, overriding the global default. If prefix
-    is None, the global default prefix is required.
 
     The global prefix is configured in config['command']['prefix']. For
     example, if the global prefix is "!", all commands must be prefixed with a
     "!". But individual commands may override this prefix.
 
     """
-    prefix = None
 
     def __init__(self, *args, **kwargs):
         super(CommandPluginSuperclass, self).__init__(*args, **kwargs)
 
-        commandconfig = self.pluginboss.config.get("command", {})
-        self.__globalprefix = commandconfig.get("prefix", None)
+        # List of _CommandTuple objects installed by install_command()
+        # functions
+        self.__cmds = []
 
-        # A list of (regular expression object, permission, callback, prefix)
-        # tuples
-        self.__callbacks = []
-        self.__catchalls = []
+        # List of _CommandGroupTuple objects There is always one top-level
+        # object. Others are installed with self.install_cmdgroup()
+        self.__cmdgs = []
 
-        self.commandlist = []
+        # put this function here as a way to define top-level commands
+        self.install_command = self.install_cmdgroup(
+                grpname="",
+                ).install_command
+
+    @property
+    def cmdgs(self):
+        return self.__cmdgs
 
     def start(self):
         super(CommandPluginSuperclass, self).start()
         self.listen_for_event("irc.on_privmsg")
 
-    def define_command(self, cmdname):
-        """This is purely for the help plugin so it knows what commands this
-        plugin defines. Call this for each top level command and it will be
-        listed in the output of the "help" command if the help plugin is
-        installed
-        """
-        self.commandlist.append(cmdname)
+    def reload(self):
+        super(CommandPluginSuperclass, self).reload()
+        commandconfig = self.pluginboss.config.get("command", {})
+        self.__globalprefix = commandconfig.get("prefix", None)
 
-    def install_command(self, formatstr, permission, callback):
-        """Install a command.
-
-        formatstr is a regular expression string. Its captured groups will be
-        passed in to the callback function as described below.
-
-        permission is a permission string that the user must have. Permission
-        checking supports globs, so for example if the required permission is
-        "plugin.perm" and the user has "plugin.*", they will be allowed.
-
-        Globs transcend dot separators too, so you can require permissions for
-        a particular channel with "plugin.permission.#channel". Some users can
-        be given "plugin.permission.#channel" directly, while others could have
-        "plugin.permission.*"
-
-        "*" is effectively super-user and will match any given
-        permission.
-
-        if the given permission is None, every user matches.
-
-        The callback parameter is a callable that is called upon the command
-        when it is issued by a user with appropriate permissions.
-
-
-        The callback format takes two parameters: the event object and the
-        regular expression match object of the matched command. The event
-        object has one extra attribute inserted: reply. This is a callable that
-        takes a string and will reply to the source of the message.
-
-        """
-        self.__callbacks.append(
-                CommandTuple(re.compile(formatstr), permission, callback)
+    def install_cmdgroup(self,
+            grpname,
+            prefix=None,
+            permission=None,
+            helptext=None,
+            ):
+        return _CommandGroup(grpname,
+                self.__cmds,
+                self.__cmdgs,
+                prefix,
+                permission,
+                helptext,
                 )
-
-    def install_catchall(self, formatstr, permission, callback):
-        """This method installs a command in the same way that
-        install_command() does, with the exceptions that commands installed
-        with this will *only* be called if no other command from this plugin is
-        matched.
-
-        This is used primarily for "help" messages. See help_msg() for a more
-        convenient way to define help messages.
-
-        """
-        self.__catchalls.append(
-                CommandTuple(re.compile(formatstr), permission, callback)
-                )
-
-    def help_msg(self, formatstr, permission, helpstr):
-        """A helpful shortcut for help messages that installs a catchall
-        callback that simply replies with the given help string.
-
-        This is intended to catch commands that don't have all the paramters
-        specified. For example, if your command is:
-
-            mycommand (?P<opt1>\w+) (P<opt2>\w+)$
-
-        Then you would probably want to define a help message that matches::
-
-            mycommand
-
-        that way any command starting with "mycommand" that doesn't match the
-        real command will display the help.
-
-        This method also adds an implicit (help )? to the beginning of the
-        format string, so that one can explicitly request the help for a
-        command. This is especially useful for commands that don't take
-        parameters.
-        """
-        def callback(event, match):
-            """This function gets called when a user issues a command that
-            doesn't match any installed commands but does match `formatstr`.
-
-            """
-            event.reply("Usage: " + helpstr)
-        # Always display the help, even if the user doesn't have the
-        # permissions. In the future we may display a different help text if
-        # the user doesn't have permissions.
-        self.install_catchall("(help )?(?:" + formatstr+")", None, callback)
 
     def on_event_irc_on_privmsg(self, event):
-        """When a message comes in, we check if it matches against any
-        installed commands. If so, call self.__do_command() to check
-        permissions and then call the command's installed callback.
-
-        This checks each command, and then each fallback command. If a command
-        matches, the others are disregarded; only the first matching command is
-        executed.
+        """Checks to see if this is a command. If so, dispatch to the command
+        handler as appropriate.
 
         """
-        # Check for all the different prefixes or ways a line could contain a
-        # command. If one of them matches, dispatch into self.__do_command()
-
         # dig deep to find the current nickname; we use it in a couple checks
         # below
         nick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
 
-        for callbacktuple in chain(self.__callbacks, self.__catchalls):
-            # If it was a private message, match against the entire message and
-            # disregard the other ones
-            if event.channel == nick:
-                match = callbacktuple.re.match(event.message)
-                if match:
-                    self.__do_command(match, callbacktuple, event)
+        # First see if this looks like a command. A command takes the form of
+        # <botname>: <command>
+        # or
+        # <global prefix> <command>
+        message = event.message
+
+        nickprefix = nick + ":"
+        if message.startswith(nickprefix):
+            message = message[len(nickprefix):].strip()
+        elif self.__globalprefix and message.startswith(self.__globalprefix):
+            message = message[len(self.__globalprefix):].strip()
+        elif event.direct:
+            # Don't require a prefix if this was sent in a direct message to me
+            message = message
+        else:
+            # Don't match the command by itself... we require a prefix (but
+            # don't return just yet, there could be a command-specific prefix
+            # that could still match)
+            message = None
+
+        # Look through all our defined commands to see if any match
+        for cmd in self.__cmds:
+            m = cmd.commandre.match(message) if message else None
+            if m:
+                self.__do_command(event, cmd, m)
+                return
+            if cmd.prefixre:
+                m = cmd.prefixre.match(event.message.strip())
+                if m:
+                    self.__do_command(event, cmd, m)
                     return
-                continue
+            if message and cmd.helpre.match(message):
+                self.__do_help(event, cmd)
+                return
 
-            # the configured prefix
-            if self.prefix is not None and event.message.startswith(self.prefix):
-                msg = event.message[len(self.prefix):].strip()
-                match = callbacktuple.re.match(msg)
-                if match:
-                    self.__do_command(match, callbacktuple, event)
-                    return
+        # No commands or help for a specific command matched, now check for a
+        # match on help for a command group. These checks are done in reverse
+        # order so that we always display the most specific help text we can.
+        for cmdg in reversed(self.__cmdgs):
+            if cmdg.helpre and cmdg.helpre.match(message):
+                self.__do_help(event, cmdg)
+                return
 
-            # The global prefix
-            if self.__globalprefix is not None and event.message.startswith(self.__globalprefix):
-                msg = event.message[len(self.__globalprefix):].strip()
-                match = callbacktuple.re.match(msg)
-                if match:
-                    self.__do_command(match, callbacktuple, event)
-                    return
+    @defer.inlineCallbacks
+    def __do_command(self, event, cmd, match):
+        """A user has issued command `cmd` and it matched with regular
+        expression Match object `match`.
 
-            # The current nickname plus a colon
-            if event.message.startswith(nick + ":"):
-                msg = event.message[len(nick)+1:].strip()
-                match = callbacktuple.re.match(msg)
-                if match:
-                    self.__do_command(match, callbacktuple, event)
-                    return
+        This method's job is to check permissions and dispatch.
 
-
-    def __do_command(self, match, callbacktuple, event):
-        """Some user has issued a command, and the command matched a registered
-        command for this plugin.
-
-        We still don't know if the user is auth'd, or what permissions the user
-        has, so this method does both of those things before calling the
-        callback function registered for this command.
-
-        This function boils down to calling the get_permissions() function that
-        the Auth plugin has inserted into the event object, and providing the
-        resulting deferred a callback that checks the permission and either
-        calls the command's callback or leaves a witty response.
-        
         """
 
-        if callbacktuple.permission is None:
-            # This command does not require permission. No need to check the
-            # user at all
-            callbacktuple.callback(event, match)
-            return
-
-
-        # Check the user's permissions
-        def check_permissions(perms):
-            # User has permission perms, a list of permissions
-            # We require the user to have callbacktuple.permission
-            if has_permission(perms, callbacktuple.permission):
-                log.msg("User %s is auth'd to perform %s" % (event.user, callbacktuple.callback))
-                callbacktuple.callback(event, match)
+        if cmd.permission is None or \
+                (yield event.has_permission(cmd.permission.replace("%c",event.channel))):
+            log.msg("User %s is auth'd to perform %s" % (event.user, cmd.cmdname))
+            cmd.callback(event, match)
+        else:
+            log.msg("User %s does not have permission for %s" % (event.user, cmd.cmdname))
+            replies = self.pluginboss.config.get('command',{}).get('denied_msgs',[])
+            if not replies or event.direct:
+                event.reply(notice=True, direct=True,
+                        msg="Sorry, you don't have access to that command")
             else:
-                log.msg("User %s does not have permissions for %s" % (event.user, callbacktuple.callback))
-                replies = self.pluginboss.config.get('command',{}).get('denied_msgs',[])
-                if not replies:
-                    replies = ["Sorry, you don't have access to that command"]
-                reactor.callLater(random.uniform(0.5,2), event.reply, random.choice(replies), userprefix=False, notice=False)
+                reactor.callLater(random.uniform(0.5,3), event.reply, random.choice(replies), userprefix=False, notice=False)
 
+    @defer.inlineCallbacks
+    def __do_help(self, event, cmd):
+        """Send to the user help info about this command"""
+        if hasattr(cmd, "subcmds"):
+            # This is a command group
+            for line in cmd.helplines:
+                event.reply(notice=True, direct=True,
+                        msg=line)
+            cmdstr = "Sub-commands you have access to: "
+            cmds_with_access = []
+            for subcmd in cmd.subcmds:
+                if subcmd[1] is None or \
+                        (yield event.has_permission(subcmd[1].replace("%c", event.channel))):
+                    cmds_with_access.append(subcmd[0])
+            if not cmds_with_access:
+                cmdstr = "You don't have access to any of these commands, however"
+            else:
+                cmdstr += ", ".join(cmds_with_access)
+            event.reply(notice=True, direct=True,
+                    msg=cmdstr)
 
-        deferred = event.get_permissions()
-        deferred.addCallback(check_permissions)
-        
+        else:
+            # A regular command
+            for line in cmd.helplines:
+                event.reply(notice=True, direct=True,
+                        msg=line)
+            if cmd.permission is not None and \
+                    not (yield event.has_permission(cmd.permission.replace("%c",event.channel))):
+                event.reply(notice=True, direct=True,
+                        msg="Note: You do not have permission to execute this command. Why are you looking at its help? Well?"
+                        )

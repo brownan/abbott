@@ -81,10 +81,15 @@ class IRCBot(irc.IRCClient):
     def privmsg(self, user, channel, message):
         """Someone sent us a private message or we received a channel
         message.
+
+        This event has an extra attribute added: direct
+        it is equal to event.channel == self.nickname
         
         """
+
         self.factory.broadcast_message("irc.on_privmsg",
-                user=user, channel=channel, message=message)
+                user=user, channel=channel, message=message,
+                direct=channel == self.nickname)
 
     def noticed(self, user, channel, message):
         """Received a notice. This is like a privmsg, but distinct."""
@@ -220,36 +225,33 @@ class IRCController(CommandPluginSuperclass):
     def start(self):
         super(IRCController, self).start()
         
-        self.install_command(r"join (?P<channel>#\w+)$",
-                "irc.control",
-                self.join)
-        self.help_msg("join",
-                "irc.control",
-                "'join <channel>' Joins an IRC channel")
+        self.install_command(
+                cmdname="join",
+                argmatch=r"(?P<channel>#\w+)$",
+                permission="irc.control",
+                callback=self.join,
+                cmdusage="<channel>",
+                helptext="Joins an IRC channel"
+                )
 
-        self.install_command(r"(part|leave)( (?P<channel>#\w+))?$",
-                "irc.control",
-                self.part)
-        self.help_msg("part",
-                "irc.control",
-                "'part [channel]' Leaves the current or specified IRC channel")
+        self.install_command(
+                cmdname="part",
+                cmdmatch="part|leave",
+                argmatch="( (?P<channel>#\w+))?$",
+                permission="irc.control",
+                callback=self.part,
+                cmdusage="[channel]",
+                helptext="Leaves the current or specified IRC channel",
+                )
 
-        self.install_command(r"nick (?P<newnick>[\w-]+)",
-                "irc.control",
-                self.nickchange)
-        self.help_msg("nick",
-                "irc.control",
-                "'nick <newnick>' Changes the nickname of the bot")
-
-        self.install_command(r"echo (?P<msg>.*)$",
-                None,
-                self.echo)
-        self.help_msg("echo",
-                None,
-                "'echo <echo msg>' Echo a message back to the channel")
-
-        for c in ['join','part','nick','echo']:
-            self.define_command(c)
+        self.install_command(
+                cmdname="nick",
+                argmatch=r"(?P<newnick>[\w-]+)",
+                permission="irc.control",
+                callback=self.nickchange,
+                cmdusage="<new nick>",
+                helptext="Changes my nickname",
+                )
 
     def join(self, event, match):
         channel = match.groupdict()['channel']
@@ -269,8 +271,7 @@ class IRCController(CommandPluginSuperclass):
         else:
 
             channel = event.channel
-            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
-            if channel == mynick:
+            if event.direct:
                 # This was sent via a direct PM... I can't leave that!
                 event.reply("You must let me know what channel to leave")
                 return
@@ -281,9 +282,8 @@ class IRCController(CommandPluginSuperclass):
 
     def nickchange(self, event, match):
         newnick = match.groupdict()['newnick']
-        oldnick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
 
-        if event.channel == oldnick:
+        if event.direct:
             event.reply("Changing nick to %s" % newnick)
 
         newevent = Event("irc.do_setnick", nickname=newnick)
@@ -294,11 +294,7 @@ class IRCController(CommandPluginSuperclass):
         self.pluginboss.save()
         self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].reload()
 
-    def echo(self, event, match):
-        msg = match.groupdict()['msg']
-        event.reply(msg)
-
-class ReplyInserter(BotPlugin):
+class ReplyInserter(CommandPluginSuperclass):
     """This plugin's function is to insert a reply() function to each incoming
     irc.on_privmsg event. It is required for a lot of functionality, including
     all Command-derived plugins, so you should probably have this activated!
@@ -309,26 +305,57 @@ class ReplyInserter(BotPlugin):
 
         self.install_middleware("irc.on_privmsg")
 
+        self.install_command(
+                cmdname="echo",
+                callback=lambda event,match: event.reply(match.groupdict()['msg']),
+                cmdusage="<text to echo>",
+                argmatch="(?P<msg>.*)$",
+                helptext="Echos text back to where it came",
+                )
+
+
     def on_middleware_irc_on_privmsg(self, event):
-        def reply(msg, userprefix=True, notice=False):
+        def reply(msg, userprefix=True, notice=False, direct=False):
+            """This function is inserted to every irc.on_privmsg event that's
+            sent. It sends a reply directed at the user that sent the message.
+
+            if userprefix is True (the default), the message is prefixed by
+            "user: ", so that the user is notified and the reply is
+            highlighted. (This is skipped for direct replies)
+
+            If notice is True, the reply is sent as an irc NOTICE command
+            instead of a PRIVMSG
+
+            If direct is True, the message will be sent direct to the user
+            instead of through the channel where this message originated. (This
+            obviously has no effect if the incoming message was a direct
+            message; the reply will always be direct)
+
+            """
             if notice:
                 eventname = "irc.do_notice"
             else:
                 eventname = "irc.do_msg"
             nick = event.user.split("!",1)[0]
             
-            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+            # In addition to if it was explicitly requested, send the response
+            # "direct" if the incoming response was sent direct to us
+            direct = direct or event.direct
 
-            if userprefix and mynick != event.channel:
-                # Never prefix the user if this is a PM, otherwise obey the
-                # request or the default
+            # Decide whether to prefix the name to the message: if requested,
+            # but not if the message will be sent back directly
+            if userprefix and not direct:
                 msg = "%s: %s" % (nick, msg)
 
-            # If it was sent to us directly (channel == mynick) then send it
-            # directly back. Otherwise send it to the originating channel
-            channel = event.channel if event.channel != mynick else nick
+            # Decide where to send it back: send it direct if it was sent
+            # incoming direct (or if direct was requested). Otherwise, send it
+            # to the channel
+            if direct:
+                outchannel = nick
+            else:
+                outchannel = event.channel
 
-            newevent = Event(eventname, user=channel, message=msg)
+            newevent = Event(eventname, user=outchannel, message=msg)
             self.transport.send_event(newevent)
         event.reply = reply
         return event

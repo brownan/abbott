@@ -29,103 +29,127 @@ class IRCAdmin(CommandPluginSuperclass):
     op, but acquires it on demand and then drops it.
 
     """
-    prefix="."
 
     def start(self):
         super(IRCAdmin, self).start()
 
-        self.install_command(r"(kick|KICK) (?P<nick>[^ ]+)( (?P<reason>.*))?$",
-                "irc.op.kick",
-                self.kick)
-        self.help_msg("kick|KICK",
-                "irc.op.kick",
-                "'.KICK <nick> [reason]' Kicks a user from the current channel")
-        self.define_command(".KICK")
+        self.install_command(
+                cmdname="kick",
+                cmdmatch="kick|KICK",
+                cmdusage="<nickname> [reason]",
+                argmatch = "(?P<nick>[^ ]+)( (?P<reason>.*))?$",
+                permission="irc.op.%c.kick",
+                prefix=".",
+                callback=self.kick,
+                helptext="Kicks a user from the current channel")
 
-        self.install_command("(voice|VOICE) (?P<nick>[^ ]+)$",
-                "irc.op.voice",
-                self.voice)
-        self.help_msg("voice|VOICE",
-                "irc.op.voice",
-                "'.VOICE <nick>' Grants a user voice in the current channel",
+        self.install_command(
+                cmdname="voice",
+                cmdmatch="voice|VOICE",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                permission="irc.op.%c.voice",
+                prefix=".",
+                callback=self.voice,
+                helptext="Grants a user voice in the current channel"
                 )
-        self.define_command(".VOICE")
 
-        self.install_command("(devoice|DEVOICE) (?P<nick>[^ ]+)$",
-                "irc.op.voice",
-                self.devoice)
-        self.help_msg("devoice|DEVOICE",
-                "irc.op.voice",
-                "'.DEVOICE <nick>' Revokes a user's voice in the current channel",
+        self.install_command(
+                cmdname="devoice",
+                cmdmatch="devoice|DEVOICE",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                permission="irc.op.%c.voice",
+                prefix=".",
+                callback=self.devoice,
+                helptext="Revokes a user's voice in the current channel"
                 )
-        self.define_command(".DEVOICE")
 
-        self.install_command(r"op with external command (?P<command>.*)$",
-                "irc.op",
-                self.set_op_external_command)
-        self.install_command(r"op with chanserv$",
-                "irc.op",
-                self.set_op_with_chanserv)
+        self.install_command(
+                cmdname="op with external command",
+                cmdmatch=None, # uses the cmdname literally
+                cmdusage="<command>",
+                argmatch="(?P<command>.*)$",
+                permission="irc.op.%c",
+                prefix=None,
+                callback=self.set_op_external_command,
+                helptext=None, # will not appear in help text
+                )
+        self.install_command(
+                cmdname="op with chanserv",
+                cmdmatch=None,
+                cmdusage=None, # no usage
+                argmatch=None, # no arguments
+                permission="irc.op.%c",
+                prefix=None,
+                callback=self.set_op_with_chanserv,
+                helptext=None,
+                )
 
         # Topic commands
-        topic_permission = None
-        self.install_command("topic append (?P<text>.+)$",
-                topic_permission,
-                self.topicappend)
-        self.help_msg("topic append",
-                topic_permission,
-                "'topic append <text>' Appends text to the end of the channel topic")
+        topicgroup = self.install_cmdgroup(
+                grpname="topic",
+                prefix=None,
+                permission="irc.op.%c.topic",
+                helptext="Topic manipulation commands",
+                )
 
-        self.install_command(r"topic insert (?P<pos>-?\d+) (?P<text>.+)$",
-                topic_permission,
-                self.topicinsert)
-        self.help_msg("topic insert",
-                topic_permission,
-                "'topic insert <pos> <text>' Inserts text into the topic at the given position")
+        topicgroup.install_command(
+                cmdname="append",
+                cmdmatch=None,
+                cmdusage="<text>",
+                argmatch="(?P<text>.+)$",
+                permission=None, # Inherits permissions from the group
+                callback=self.topicappend,
+                helptext="Appends text to the end of the channel topic",
+                )
+        topicgroup.install_command(
+                cmdname="insert",
+                cmdmatch=None,
+                cmdusage="<pos> <text>",
+                argmatch=r"(?P<pos>-?\d+) (?P<text>.+)$",
+                callback=self.topicinsert,
+                helptext="Inserts text into the topic at the given position",
+                )
 
-        self.install_command(r"topic replace (?P<pos>-?\d+) (?P<text>.+)$",
-                topic_permission,
-                self.topicreplace)
-        self.help_msg("topic replace",
-                topic_permission,
-                "'topic replace <pos> <text>' Replaces the given section with the given text")
+        topicgroup.install_command(
+                cmdname="replace",
+                cmdmatch=None,
+                cmdusage="<pos> <text>",
+                argmatch=r"(?P<pos>-?\d+) (?P<text>.+)$",
+                callback=self.topicreplace,
+                helptext="Replaces the given section with the given text",
+                )
 
-        self.install_command(r"topic remove (?P<pos>-?\d+)$",
-                topic_permission,
-                self.topicremove)
-        self.help_msg("topic remove",
-                topic_permission,
-                "'topic remove <pos>' Removes the pos'th topic section")
+        topicgroup.install_command(
+                cmdname="remove",
+                cmdmatch=None,
+                cmdusage="<pos>",
+                argmatch=r"(?P<pos>-?\d+)$",
+                callback=self.topicremove,
+                helptext="Removes the pos'th topic selection",
+                )
 
-        self.install_command(r"topic undo$",
-                topic_permission,
-                self.topic_undo)
-        self.help_msg("topic undo",
-                topic_permission,
-                "'topic undo' Reverts the topic to the last known channel topic")
+        topicgroup.install_command(
+                cmdname="undo",
+                callback=self.topic_undo,
+                helptext="Reverts the topic to the last known channel topic",
+                )
 
-        self.install_command("topic requireop",
-                "irc.op",
-                self.topic_requireop)
-        self.help_msg("topic requireop",
-                topic_permission,
-                "'topic requireop' The bot will acquire OP to change the topic in this channel")
+        topicgroup.install_command(
+                cmdname="requireop",
+                callback=self.topic_requireop,
+                helptext="The bot will acquire OP to change the topic in this channel",
+                permission="irc.op.%c",
+                )
+        topicgroup.install_command(
+                cmdname="norequireop",
+                callback=self.topic_norequireop,
+                helptext="The bot will not try to acquire OP to change the topic in this channel",
+                permission="irc.op.%c",
+                )
 
-        self.install_command("topic norequireop",
-                "irc.op",
-                self.topic_norequireop)
-        self.help_msg("topic norequireop",
-                topic_permission,
-                "'topic norequireop' The bot will not try to acquire OP to change the topic in this channel")
-
-        self.help_msg("topic",
-                topic_permission,
-                "'topic <command> [args]' Topic commands: append, insert, remove, undo")
-
-        self.define_command("topic")
-
-        # Maps channel names to the last so many topics (not going to fall into
-        # the trap of duplicating my constants in comments!)
+        # Maps channel names to the last so many topics
         # (The top most item on the stack should be the current topic. But the
         # handlers should handle the case that the stack is empty!)
         self.topic_stack = defaultdict(lambda: deque(maxlen=10))
@@ -142,7 +166,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         if "opmethod" not in self.config:
             self.config['opmethod'] = None
-        self.pluginboss.save()
+            self.pluginboss.save()
 
         self.listen_for_event("irc.on_mode_change")
 
