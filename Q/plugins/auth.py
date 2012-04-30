@@ -34,39 +34,43 @@ class Auth(command.CommandPluginSuperclass):
         # Maps hostmasks to sets of deferred objects that need calling
         self.waiting = defaultdict(set)
 
-        return
-        # Install a few commands. These will call the given callback. This
-        # functionality is provided by the CommandPlugin class, from which this
-        # class inherits. The CommandPlugin will also check permissions.
-        self.install_command(r"permissions? add (?P<name>\w+) (?P<perm>[\w.\*]+)$",
-                "auth.edit_permissions",
-                self.permission_add)
-        self.help_msg("permissions? add",
-                "auth.edit_permissions",
-                "'permission add <authname> <permission>' Grants a user the specified permission")
+        permgroup = self.install_cmdgroup(
+                grpname="permission",
+                permission="auth.edit_permissions",
+                helptext="Permission manipulation commands",
+                )
 
-        self.install_command(r"permissions? revoke (?P<name>\w+) (?P<perm>[\w.\*]+)$",
-                "auth.edit_permissions",
-                self.permission_revoke)
-        self.help_msg("permissions? revoke",
-                "auth.edit_permissions",
-                "'permission revoke <authname> <permission>' Revokes the specified permission from the user")
+        permgroup.install_command(
+                cmdname="add",
+                argmatch=r"(?P<name>\w+) (?P<perm>[\w.\*]+)$",
+                callback=self.permission_add,
+                cmdusage="<authname> <permission>",
+                helptext="Grants a user the specified permission",
+                )
 
-        self.install_command(r"permissions? list( (?P<name>[\w.]+))?$",
-                None,
-                self.permission_list)
-        self.install_command(r"whoami$",
-                None,
-                self.permission_list)
-        self.help_msg("permissions? list|whoami",
-                None,
-                "'permission list [authname]' Lists the permissions granted to the given or current user")
+        permgroup.install_command(
+                cmdname="revoke",
+                argmatch=r"(?P<name>\w+) (?P<perm>[\w.\*]+)$",
+                callback=self.permission_revoke,
+                cmdusage="<authname> <permission>",
+                helptext="Revokes the specified permission from the user",
+                )
 
-        self.help_msg("permissions?",
-                None,
-                "'permission <command> [options]' Possible permission commands: add, revoke, list")
+        permgroup.install_command(
+                cmdname="list",
+                argmatch=r"( (?P<name>[\w.]+))?$",
+                callback=self.permission_list,
+                cmdusage="[authname]",
+                helptext="Lists the permissions granted to the given or current user",
+                )
 
-        self.define_command('permission')
+        # Top level command
+        self.install_command(
+                cmdname="whoami",
+                permission=None,
+                callback=self.permission_list,
+                helptext="Tells you who you're auth'd as and lists your permissions.",
+                )
 
     def received_middleware_event(self, event):
         """For events that are applicable, install a handler one can call to
@@ -137,10 +141,9 @@ class Auth(command.CommandPluginSuperclass):
         # Get the permissions
         perms = self.permissions[authname]
 
+        del self.waiting[hostmask]
         for deferred in deferreds:
             deferred.callback(perms)
-
-        del self.waiting[hostmask]
 
     def _fail_request(self, hostmask):
         """This is called 5 seconds after a whois request is issued. If we
@@ -153,10 +156,10 @@ class Auth(command.CommandPluginSuperclass):
         if deferreds:
             log.msg("No identity information returned for %s. Returning no permissions" % (hostmask,))
 
+            del self.waiting[hostmask]
             for deferred in deferreds:
                 deferred.callback([])
 
-            del self.waiting[hostmask]
 
 
     def _get_permissions(self, hostmask):

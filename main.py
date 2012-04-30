@@ -1,2 +1,2 @@
-from twistbot import twistbot
-twistbot.main()
+from Q import entrypt
+entrypt.main()

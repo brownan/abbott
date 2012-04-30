@@ -112,7 +112,7 @@ I'll create a new one for you now""")
         
         """
         modulename, classname = plugin_name.split(".")
-        module = __import__("twistbot.plugins."+modulename, fromlist=[classname])
+        module = __import__("Q.plugins."+modulename, fromlist=[classname])
         
         if reload_first:
 

@@ -295,7 +295,7 @@ class CommandPluginSuperclass(BotPlugin):
         # match on help for a command group. These checks are done in reverse
         # order so that we always display the most specific help text we can.
         for cmdg in reversed(self.__cmdgs):
-            if cmdg.helpre and cmdg.helpre.match(message):
+            if cmdg.helpre and message and cmdg.helpre.match(message):
                 self.__do_help(event, cmdg)
                 return
 
