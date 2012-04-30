@@ -24,8 +24,13 @@ class Help(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="help",
+                # The help command is a bit different. Normally we wouldn't
+                # include an end-of-string match in the re, but since help is
+                # caught by every installed command by every plugin, we need to
+                # make sure this matches help and only help.
+                cmdmatch="help$",
                 callback=self.display_help,
-                helptext="Displays a list of all top-level commands",
+                helptext="Help on the help command. Displays a helpful help message about help, helps you help yourself use help. Helpful, huh?",
                 )
 
     @defer.inlineCallbacks
@@ -54,5 +59,7 @@ class Help(CommandPluginSuperclass):
                         commands.append(group.grpname)
                         break
 
-        event.reply("Commands you have access to: %s" % ", ".join(commands))
-        event.reply("Use 'help <command>' for more information about a command")
+        event.reply("Commands you have access to: %s" % ", ".join(commands),
+                notice=True,direct=True)
+        event.reply("Use 'help <command>' for more information about a command",
+                notice=True, direct=True)
