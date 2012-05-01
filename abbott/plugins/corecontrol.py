@@ -75,17 +75,21 @@ class Help(CommandPluginSuperclass):
                     for chan in chans:
                         channelcommands[chan].append(group.grpname)
 
-        if globalcommands:
+        if globalcommands or channelcommands:
+            if globalcommands:
+                event.reply(notice=True, direct=True,
+                        msg="Global commands you have access to: %s" % (
+                            ", ".join(globalcommands)
+                            ))
+
+            for chan, cmds in channelcommands.iteritems():
+                event.reply(notice=True, direct=True,
+                        msg="In %s you can execute: %s" % (
+                            chan, ", ".join(cmds)
+                            ))
+
             event.reply(notice=True, direct=True,
-                    msg="Global commands you have access to: %s" % (
-                        ", ".join(globalcommands)
-                        ))
+                    msg="Use 'help <command>' for more information on a command")
         else:
             event.reply(notice=True, direct=True,
-                    msg="You don't have access to any global commands")
-
-        for chan, cmds in channelcommands.iteritems():
-            event.reply(notice=True, direct=True,
-                    msg="In %s you can execute: %s" % (
-                        chan, ", ".join(cmds)
-                        ))
+                    msg="You don't have access to any of my commands. Go away.")
