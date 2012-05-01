@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from twisted.internet import reactor, defer
 
 from ..command import CommandPluginSuperclass
@@ -42,24 +44,48 @@ class Help(CommandPluginSuperclass):
             except AttributeError:
                 pass
 
-        commands = []
+        globalcommands = []
+        channelcommands = defaultdict(list)
+
         for group in command_groups:
             if not group.grpname:
-                # This is a group of top-level commands
+                # This is a group of top-level commands. List each command
+                # individually
                 for cmd in group.subcmds:
-                    if cmd[1] is None or \
-                            (yield event.has_permission(cmd[1].replace("%c", event.channel))):
-                        commands.append(cmd[0])
+                    # Get a list of channels where this permission applies for
+                    # this user
+                    where = (yield event.where_permission(cmd[1]))
+                    if None in where:
+                        globalcommands.append(cmd[0])
+                    else:
+                        for chan in where:
+                            channelcommands[chan].append(cmd[0])
+
             else:
                 # Go through the sub-commands and make sure there is at least
-                # one command we have access to
+                # one command we have access to. If so, just list the top-level
+                # metacommand
+                chans = set()
                 for cmd in group.subcmds:
-                    if cmd[1] is None or \
-                            (yield event.has_permission(cmd[1].replace("%c", event.channel))):
-                        commands.append(group.grpname)
-                        break
+                    chans.update((yield event.where_permission(cmd[1])))
 
-        event.reply("Commands you have access to: %s" % ", ".join(commands),
-                notice=True,direct=True)
-        event.reply("Use 'help <command>' for more information about a command",
-                notice=True, direct=True)
+                if None in chans:
+                    globalcommands.append(group.grpname)
+                else:
+                    for chan in chans:
+                        channelcommands[chan].append(group.grpname)
+
+        if globalcommands:
+            event.reply(notice=True, direct=True,
+                    msg="Global commands you have access to: %s" % (
+                        ", ".join(globalcommands)
+                        ))
+        else:
+            event.reply(notice=True, direct=True,
+                    msg="You don't have access to any global commands")
+
+        for chan, cmds in channelcommands.iteritems():
+            event.reply(notice=True, direct=True,
+                    msg="In %s you can execute: %s" % (
+                        chan, ", ".join(cmds)
+                        ))

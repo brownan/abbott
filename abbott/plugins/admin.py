@@ -38,7 +38,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch="kick|KICK",
                 cmdusage="<nickname> [reason]",
                 argmatch = "(?P<nick>[^ ]+)( (?P<reason>.*))?$",
-                permission="irc.op.%c.kick",
+                permission="irc.op.kick",
                 prefix=".",
                 callback=self.kick,
                 helptext="Kicks a user from the current channel")
@@ -48,7 +48,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch="voice|VOICE",
                 cmdusage="<nick>",
                 argmatch = "(?P<nick>[^ ]+)$",
-                permission="irc.op.%c.voice",
+                permission="irc.op.voice",
                 prefix=".",
                 callback=self.voice,
                 helptext="Grants a user voice in the current channel"
@@ -59,7 +59,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch="devoice|DEVOICE",
                 cmdusage="<nick>",
                 argmatch = "(?P<nick>[^ ]+)$",
-                permission="irc.op.%c.voice",
+                permission="irc.op.voice",
                 prefix=".",
                 callback=self.devoice,
                 helptext="Revokes a user's voice in the current channel"
@@ -70,7 +70,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch=None, # uses the cmdname literally
                 cmdusage="<command>",
                 argmatch="(?P<command>.*)$",
-                permission="irc.op.%c",
+                permission="irc.op",
                 prefix=None,
                 callback=self.set_op_external_command,
                 helptext=None, # will not appear in help text
@@ -80,7 +80,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch=None,
                 cmdusage=None, # no usage
                 argmatch=None, # no arguments
-                permission="irc.op.%c",
+                permission="irc.op",
                 prefix=None,
                 callback=self.set_op_with_chanserv,
                 helptext=None,
@@ -90,7 +90,7 @@ class IRCAdmin(CommandPluginSuperclass):
         topicgroup = self.install_cmdgroup(
                 grpname="topic",
                 prefix=None,
-                permission="irc.op.%c.topic",
+                permission="irc.op.topic",
                 helptext="Topic manipulation commands",
                 )
 
@@ -140,13 +140,13 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="requireop",
                 callback=self.topic_requireop,
                 helptext="The bot will acquire OP to change the topic in this channel",
-                permission="irc.op.%c",
+                permission="irc.op",
                 )
         topicgroup.install_command(
                 cmdname="norequireop",
                 callback=self.topic_norequireop,
                 helptext="The bot will not try to acquire OP to change the topic in this channel",
-                permission="irc.op.%c",
+                permission="irc.op",
                 )
 
         # Maps channel names to the last so many topics

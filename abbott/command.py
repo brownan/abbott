@@ -308,8 +308,7 @@ class CommandPluginSuperclass(BotPlugin):
 
         """
 
-        if cmd.permission is None or \
-                (yield event.has_permission(cmd.permission.replace("%c",event.channel))):
+        if (yield event.has_permission(cmd.permission, event.channel)):
             log.msg("User %s is auth'd to perform %s" % (event.user, cmd.cmdname))
             cmd.callback(event, match)
         else:
@@ -329,26 +328,45 @@ class CommandPluginSuperclass(BotPlugin):
             for line in cmd.helplines:
                 event.reply(notice=True, direct=True,
                         msg=line)
-            cmdstr = "Sub-commands you have access to: "
+
             cmds_with_access = []
+            cmds_with_global_access = []
+
             for subcmd in cmd.subcmds:
-                if subcmd[1] is None or \
-                        (yield event.has_permission(subcmd[1].replace("%c", event.channel))):
+                where = (yield event.where_permission(subcmd[1]))
+                if None in where:
+                    cmds_with_global_access.append(subcmd[0])
+                elif where:
                     cmds_with_access.append(subcmd[0])
-            if not cmds_with_access:
-                cmdstr = "You don't have access to any of these commands, however"
+
+            if not cmds_with_access and not cmds_with_global_access:
+                event.reply(notice=True, direct=True,
+                    msg="You don't have access to any of these commands, however",
+                    )
             else:
-                cmdstr += ", ".join(cmds_with_access)
-            event.reply(notice=True, direct=True,
-                    msg=cmdstr)
+                if cmds_with_global_access:
+                    event.reply(notice=True, direct=True,
+                            msg="You have access to these subcommands: %s" % (
+                                ", ".join(cmds_with_global_access)))
+                if cmds_with_access:
+                    event.reply(notice=True, direct=True,
+                            msg="You have access to these subcommands in select channels: %s" % (
+                                ", ".join(cmds_with_access)))
 
         else:
             # A regular command
             for line in cmd.helplines:
                 event.reply(notice=True, direct=True,
                         msg=line)
-            if cmd.permission is not None and \
-                    not (yield event.has_permission(cmd.permission.replace("%c",event.channel))):
+            where = (yield event.where_permission(cmd.permission))
+            if None in where:
                 event.reply(notice=True, direct=True,
-                        msg="Note: You do not have permission to execute this command. Why are you looking at its help? Well?"
-                        )
+                        msg="You have global access to this command and can run it anywhere")
+            elif where:
+                event.reply(notice=True, direct=True,
+                        msg="You can run this command in these channels: %s" % (
+                            ", ".join(where),
+                            ))
+            else:
+                event.reply(notice=True, direct=True,
+                        msg="You don't have access to this command. Get out of here you!")
