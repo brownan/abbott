@@ -81,7 +81,9 @@ I'll create a new one for you now""")
                         },
                     'auth.Auth': {
                         'perms': {
-                                admin: ['*'] # all permissions
+                                admin: [
+                                    [None, '*'] # all permissions on all channels
+                                    ]
                             },
                         },
                     },
