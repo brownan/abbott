@@ -16,7 +16,7 @@ class PluginBoss(object):
         self.loaded_plugins = {}
         
         try:
-            self._load()
+            self.load()
         except IOError:
             self._seed_defaults()
 
@@ -90,7 +90,7 @@ I'll create a new one for you now""")
                 }
         self.save()
 
-    def _load(self):
+    def load(self):
         with open(self._filename, 'r') as file_handle:
             self.config = json.load(file_handle)
 
@@ -107,8 +107,7 @@ I'll create a new one for you now""")
         """Loads the named plugin.
         
         plugin_name is expected to be in the form A.B where A is the module and
-        B is the class. This module is expected to live in the twisted.plugins
-        package.
+        B is the class. This module is expected to live in the plugins package.
 
         If reload_first is true, the module will be reloaded before the plugin
         is loaded

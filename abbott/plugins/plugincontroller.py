@@ -33,7 +33,7 @@ class PluginController(CommandPluginSuperclass):
                 argmatch=r"(?P<plugin>[\w.]+)$",
                 callback=self.reload_plugin,
                 cmdusage="<plugin name>",
-                helptext="Reloads the plugin's module and starts it, unloading it first if necessary",
+                helptext="Reloads the plugin's module and starts it, unloading it first if necessary. Warning: dynamic plugin reloading can sometimes cause problems!",
                 )
 
         plugingroup.install_command(

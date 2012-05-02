@@ -16,10 +16,27 @@ class CoreControl(CommandPluginSuperclass):
                 helptext="Shuts down",
                 )
 
+        self.install_command(
+                cmdname="configreload",
+                permission="core.configreload",
+                callback=self.configreload,
+                helptext="Re-reads the config on disk and updates in-memory configuration",
+                )
+
     def shutdown(self, event, match):
         event.reply("Goodbye")
         reactor.callLater(2, reactor.stop)
 
+    def configreload(self, event, match):
+        try:
+            self.pluginboss.load()
+        except Exception, e:
+            event.reply("There was a problem loading the new json. Check for syntax errors maybe? Full traceback in log")
+            raise
+        for plugin in self.pluginboss.loaded_plugins.itervalues():
+            plugin.reload()
+        event.reply("Config reloaded!")
+        
 class Help(CommandPluginSuperclass):
     def start(self):
         super(Help, self).start()
