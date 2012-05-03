@@ -138,7 +138,7 @@ class _CommandGroup(object):
         # This should match the command without any arguments and an optional
         # "help" at the beginning
         help_re = re.compile("(?:help )?(?:%s)?%s" % (
-            prefix if prefix else "",
+            re.escape(prefix) if prefix else "",
             command_str,
             ))
 
