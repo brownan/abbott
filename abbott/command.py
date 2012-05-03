@@ -148,8 +148,10 @@ class _CommandGroup(object):
             prefix_re = None
 
         # This should match the command without any arguments and an optional
-        # "help" at the beginning
-        help_re = re.compile("(?:help )?(?:%s)?%s" % (
+        # "help" at the beginning. The \b at the end is so that the help text
+        # for a command e.g. "reload" doesn't get triggered for trying to run a
+        # command "reloadall"
+        help_re = re.compile(r"(?:help )?(?:%s)?%s\b" % (
             re.escape(prefix) if prefix is not None else "",
             command_str,
             ))
@@ -288,10 +290,11 @@ class CommandPluginSuperclass(BotPlugin):
         message = event.message
 
         nickprefix = nick + ":"
+        globalprefix = self.__globalprefix.strip()
         if message.startswith(nickprefix):
             message = message[len(nickprefix):].strip()
-        elif self.__globalprefix and message.startswith(self.__globalprefix):
-            message = message[len(self.__globalprefix):].strip()
+        elif globalprefix and message.startswith(globalprefix):
+            message = message[len(globalprefix):].strip()
         elif event.direct:
             # Don't require a prefix if this was sent in a direct message to me
             message = message
