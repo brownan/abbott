@@ -44,6 +44,25 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Kicks a user from the current channel")
 
         self.install_command(
+                cmdname="op",
+                prefix=".",
+                cmdusage="[nick]",
+                argmatch="(?P<nick>[^ ]+)?",
+                permission="irc.op.op",
+                callback=self.give_op,
+                helptext="Gives op to the specified user",
+                )
+        self.install_command(
+                cmdname="deop",
+                prefix=".",
+                cmdusage="[nick]",
+                argmatch="(?P<nick>[^ ]+)?",
+                permission="irc.op.op",
+                callback=self.take_op,
+                helptext="Takes op from the specified user",
+                )
+
+        self.install_command(
                 cmdname="voice",
                 cmdmatch="voice|VOICE",
                 cmdusage="<nick>",
@@ -168,6 +187,18 @@ class IRCAdmin(CommandPluginSuperclass):
             self.config['opmethod'] = None
             self.pluginboss.save()
 
+        # If we currently have OP, there may be a reactor timeout to relinquish
+        # it. This instance var maps channels to the IDelayedCall object for
+        # the timeout, which should be reset if we perform any other OP calls
+        self.op_timeout_event = {}
+
+        # This var holds whether we currently have OP or not in each channel
+        self.have_op = defaultdict(bool)
+
+        if "optimeout" not in self.config:
+            self.config['optimeout'] = 30
+            self.pluginboss.save()
+
         self.listen_for_event("irc.on_mode_change")
 
     def on_event_irc_on_mode_change(self, event):
@@ -179,19 +210,125 @@ class IRCAdmin(CommandPluginSuperclass):
 
         if (event.set == True and "o" in event.modes and event.args and
                 event.args[0] == mynick):
+            # Op acquired. Make a note of it
+            self.have_op[event.chan] = True
+
+            # Now that we have op, call deferreds on anything that was waiting
             log.msg("I was given op. Calling op callbacks on %s" % event.chan)
             for deferred in self.waiting_for_op.pop(event.chan, set()):
                 deferred.callback(None)
 
-            # Now set -o on ourselves now that all callbacks have been called
-            deop = Event("irc.do_mode", 
-                    chan=event.chan,
-                    set=False,
-                    modes="o",
-                    user=mynick,
-                    )
-            log.msg("Relinquishing op")
-            self.transport.send_event(deop)
+            # Now that we have op, set a timeout to relinquish it
+            if self.config['optimeout'] >= 0:
+                delayedcall = reactor.callLater(
+                        self.config['optimeout'],
+                        self._relinquish_op,
+                        event.chan)
+                self.op_timeout_event[event.chan] = delayedcall
+
+        elif (event.set == False and "o" in event.modes and event.args and
+                event.args[0] == mynick):
+            # Op gone
+            self.have_op[event.chan] = False
+
+    def _relinquish_op(self, chan):
+        """This is called by a reactor.callLater() call to relinquish op on the
+        given channel
+
+        """
+        self.have_op[chan] = False
+        del self.op_timeout_event[chan]
+
+        mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+        deop = Event("irc.do_mode", 
+                chan=chan,
+                set=False,
+                modes="o",
+                user=mynick,
+                )
+        log.msg("Relinquishing op")
+        self.transport.send_event(deop)
+
+    def _send_event_as_op(self, channel, event, reply):
+        """Gets op on the specified channel, then sends the given event
+        
+        The given reply callable is used if we need to reply to the channel (on
+        failure)
+        
+        """
+        deferred = self._get_op(channel)
+        def fail(reason):
+            log.err("failed because we failed to get OP")
+            reply(reason.getErrorMessage())
+        def success(_):
+            log.msg("OP succeeded, proceeding to issue event %s" % event.__dict__)
+            self.transport.send_event(event)
+        deferred.addCallbacks(success, fail)
+
+    def _get_op(self, channel):
+        """Returns a deferred object that's called when OP is acquired.
+        
+        the error callback is called if op is not acquired in a timely manner
+        
+        """
+        if self.have_op[channel]:
+            # We already have op. Reset the timer if it exists, and return
+            # succeess
+            if self.config['optimeout'] >= 0:
+                try:
+                    self.op_timeout_event[channel].reset(self.config['optimeout'])
+                except KeyError:
+                    pass
+            return defer.succeed(None)
+
+        hasop = defer.Deferred()
+
+        if self.waiting_for_op[channel]:
+            # Already had some waiters, that must mean op is already pending
+            log.msg("Was going to submit an OP requst, but there's already one pending")
+            self.waiting_for_op[channel].add(hasop)
+            return hasop
+
+        if self.config['opmethod'] == "external":
+            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+
+            cmd = self.config['opcommand']
+            # Break the command up into parts. This is done before the %c and
+            # %n replacement to avoid any injection attacks
+            cmd_parts = shlex.split(cmd.encode("UTF-8"))
+            # Now do the replacements
+            cmd_parts = [x.replace("%c", channel.encode("UTF-8")) for x in cmd_parts]
+            cmd_parts = [x.replace("%n", mynick.encode("UTF-8"))  for x in cmd_parts]
+            log.msg("Executing %s" % cmd)
+            log.msg("Final arguments are %s" % cmd_parts)
+            proc_defer = getProcessOutput("/usr/bin/env", cmd_parts, errortoo=True)
+            def finished(output):
+                if output.strip():
+                    log.msg("Process finished. Returned %s" % output)
+            proc_defer.addCallback(finished)
+
+        elif self.config['opmethod'] == "chanserv":
+            return defer.fail("chanserv mode not supported just yet")
+        else:
+            return defer.fail("No suitable methods to acquire OP are defined!")
+
+        self.waiting_for_op[channel].add(hasop)
+        reactor.callLater(10, self._timed_out, channel)
+
+        return hasop
+
+    def _timed_out(self, channel):
+        """The request to gain OP in the given channel has timed out. Call the
+        error methods on any deferreds waiting for it
+
+        """
+        deferreds = self.waiting_for_op.pop(channel, set())
+        for deferred in deferreds:
+            deferred.errback("OP request timed out. Check your config and the error log.")
+
+    ###
+    ### Command callbacks for OP related tasks
+    ###
 
     @require_channel
     def kick(self, event, match):
@@ -238,21 +375,36 @@ class IRCAdmin(CommandPluginSuperclass):
         log.msg("De-voicing %s in %s" % (nick, channel))
         self._send_event_as_op(channel, voiceevent, event.reply)
 
-    def _send_event_as_op(self, channel, event, reply):
-        """Gets op on the specified channel, then sends the given event
-        
-        The given reply callable is used if we need to reply to the channel (on
-        failure)
-        
-        """
-        deferred = self._get_op(channel)
-        def fail(reason):
-            log.err("failed because we failed to get OP")
-            reply(reason.getErrorMessage())
-        def success(_):
-            log.msg("OP succeeded, proceeding to issue event %s" % event.__dict__)
-            self.transport.send_event(event)
-        deferred.addCallbacks(success, fail)
+    @require_channel
+    def give_op(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
+        channel = event.channel
+        opevent = Event("irc.do_mode",
+                chan=channel,
+                set=True,
+                modes="o",
+                user=nick,
+                )
+        log.msg("Opping %s in %s" % (nick, channel))
+        self._send_event_as_op(channel, voiceevent, event.reply)
+    @require_channel
+    def take_op(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
+        channel = event.channel
+        opevent = Event("irc.do_mode",
+                chan=channel,
+                set=False,
+                modes="o",
+                user=nick,
+                )
+        log.msg("De-Opping %s in %s" % (nick, channel))
+        self._send_event_as_op(channel, voiceevent, event.reply)
 
     def set_op_external_command(self, event, match):
         """Configure the plugin to use an external command to acquire op.
@@ -271,57 +423,6 @@ class IRCAdmin(CommandPluginSuperclass):
         self.config['opmethod'] = 'chanserv'
         self.pluginboss.save()
         event.reply("Op method changed")
-
-    def _get_op(self, channel):
-        """Returns a deferred object that's called when OP is acquired.
-        
-        the error callback is called if op is not acquired in a timely manner
-        
-        """
-        hasop = defer.Deferred()
-
-        if self.waiting_for_op[channel]:
-            # Already had some waiters, that must mean op is already pending
-            log.msg("Was going to submit an OP requst, but there's already one pending")
-            self.waiting_for_op[channel].add(hasop)
-            return hasop
-
-        if self.config['opmethod'] == "external":
-            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
-
-            cmd = self.config['opcommand']
-            # Break the command up into parts. This is done before the %c and
-            # %n replacement to avoid any injection attacks
-            cmd_parts = shlex.split(cmd.encode("UTF-8"))
-            # Now do the replacements
-            cmd_parts = [x.replace("%c", channel.encode("UTF-8")) for x in cmd_parts]
-            cmd_parts = [x.replace("%n", mynick.encode("UTF-8"))  for x in cmd_parts]
-            log.msg("Executing %s" % cmd)
-            log.msg("Final arguments are %s" % cmd_parts)
-            proc_defer = getProcessOutput("/usr/bin/env", cmd_parts, errortoo=True)
-            def finished(output):
-                if output.strip():
-                    log.msg("Process finished. Returned %s" % output)
-            proc_defer.addCallback(finished)
-
-        elif self.config['opmethod'] == "chanserv":
-            return defer.fail("chanserv mode not supported just yet")
-        else:
-            return defer.fail("No suitable methods to acquire OP are defined!")
-
-        self.waiting_for_op[channel].add(hasop)
-        reactor.callLater(10, self._timed_out, channel)
-
-        return hasop
-
-    def _timed_out(self, channel):
-        """The request to gain OP in the given channel has timed out. Call the
-        error methods on any deferreds waiting for it
-
-        """
-        deferreds = self.waiting_for_op.pop(channel, set())
-        for deferred in deferreds:
-            deferred.errback("OP request timed out. Check your config and the error log.")
 
 
     ### Topic methods
