@@ -19,11 +19,13 @@ class _CommandGroup(object):
             prefix=None,
             permission=None,
             helptext=None,
+            globalprefix=None,
             ):
         self.grpname = grpname
         self.cmdlist = cmdlist
         self.prefix = prefix
         self.permission = permission
+        self.globalprefix = globalprefix
 
         if grpname:
             help_re = re.compile("(?:help )?(?:%s)?%s" % (
@@ -36,7 +38,17 @@ class _CommandGroup(object):
         helplines = []
         if helptext:
             helplines.append(helptext)
-        helplines.append("Usage: %s <subcommand> [arguments ...]" % grpname)
+
+        # For the purposes of the helpstr, find the most specific prefix we can
+        # (any will work though)
+        if prefix is None:
+            prefix = globalprefix
+            if prefix is None:
+                prefix = "{nickname}: "
+        helplines.append("Usage: %s%s <subcommand> [arguments ...]" % (
+            prefix,
+            grpname,
+            ))
         helplines.append("Use 'help %s <subcommand>' for more information on a subcommand" % grpname)
 
         self.subcmds = []
@@ -129,7 +141,7 @@ class _CommandGroup(object):
         # Put together a regular expression string matching the entire command
         # plus the prefix. If this command doesn't give a prefix, go with the
         # group prefix.
-        prefix = prefix if prefix else self.prefix
+        prefix = prefix if prefix is not None else self.prefix
         if prefix is not None:
             prefix_re = re.compile(re.escape(prefix) + commandargs_str)
         else:
@@ -138,12 +150,23 @@ class _CommandGroup(object):
         # This should match the command without any arguments and an optional
         # "help" at the beginning
         help_re = re.compile("(?:help )?(?:%s)?%s" % (
-            re.escape(prefix) if prefix else "",
+            re.escape(prefix) if prefix is not None else "",
             command_str,
             ))
 
+        # At this point, `prefix` could be either the command's or the group's
+        # prefix, but could be None if there is no special prefix. For the
+        # purposes of the usage text, if the prefix is None, put either the
+        # global prefix or the bot's nick here
+        if prefix is None:
+            prefix = self.globalprefix
+            if prefix is None:
+                # This will be replaced in __do_help(), since we don't want to
+                # assume the nick won't change at runtime
+                prefix = "{nickname}: "
+
         help_str = """Usage: %s%s%s %s\n%s""" % (
-                prefix if prefix else "",
+                prefix,
                 grpname,
                 cmdname,
                 cmdusage if cmdusage else "",
@@ -239,12 +262,14 @@ class CommandPluginSuperclass(BotPlugin):
             permission=None,
             helptext=None,
             ):
-        return _CommandGroup(grpname,
-                self.__cmds,
-                self.__cmdgs,
-                prefix,
-                permission,
-                helptext,
+        return _CommandGroup(
+                grpname=grpname,
+                cmdlist=self.__cmds,
+                cmdglist=self.__cmdgs,
+                prefix=prefix,
+                permission=permission,
+                helptext=helptext,
+                globalprefix=self.__globalprefix,
                 )
 
     def on_event_irc_on_privmsg(self, event):
@@ -323,11 +348,12 @@ class CommandPluginSuperclass(BotPlugin):
     @defer.inlineCallbacks
     def __do_help(self, event, cmd):
         """Send to the user help info about this command"""
+        nick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
         if hasattr(cmd, "subcmds"):
             # This is a command group
             for line in cmd.helplines:
                 event.reply(notice=True, direct=True,
-                        msg=line)
+                        msg=line.replace("{nickname}", nick))
 
             cmds_with_access = []
             cmds_with_global_access = []
@@ -357,7 +383,7 @@ class CommandPluginSuperclass(BotPlugin):
             # A regular command
             for line in cmd.helplines:
                 event.reply(notice=True, direct=True,
-                        msg=line)
+                        msg=line.replace("{nickname}", nick))
             where = (yield event.where_permission(cmd.permission))
             if None in where:
                 event.reply(notice=True, direct=True,

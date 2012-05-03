@@ -92,6 +92,16 @@ class Help(CommandPluginSuperclass):
                     for chan in chans:
                         channelcommands[chan].append(group.grpname)
 
+        try:
+            prefix = self.pluginboss.config['command']['prefix']
+        except KeyError:
+            prefix = None
+        if prefix is None:
+            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
+            prefix = "%s: " % mynick
+
+        event.reply(notice=True, direct=True,
+                msg="General command usage: '%s<command> [args...]'" % prefix)
         if globalcommands or channelcommands:
             if globalcommands:
                 event.reply(notice=True, direct=True,
@@ -106,7 +116,7 @@ class Help(CommandPluginSuperclass):
                             ))
 
             event.reply(notice=True, direct=True,
-                    msg="Use 'help <command>' for more information on a command")
+                    msg="Use '%shelp <command>' for more information on a command" % prefix)
         else:
             event.reply(notice=True, direct=True,
                     msg="You don't have access to any of my commands. Go away.")
