@@ -64,7 +64,8 @@ class Auth(command.CommandPluginSuperclass):
         self.install_middleware("irc.on_*")
         self.listen_for_event("irc.on_unknown")
 
-        # maps hostmasks to authenticated usernames
+        # maps hostmasks to authenticated usernames, or None to indicate the
+        # user doesn't have any auth information
         self.authd_users = {}
 
         # maps nicks to hostmasks. This is used temporarily to correlate
@@ -197,6 +198,7 @@ class Auth(command.CommandPluginSuperclass):
                 log.err("Got a RPL_WHOISACCOUNT but I don't know the hostmask! This shouldn't happen, but could if the server sends whois messages in a different order or doesn't send a RPL_WHOISACCOUNT line at all")
                 return
 
+            # Successfully correlated a hostmask with an authname. Save it here.
             self.authd_users[hostmask] = authname
 
             self._check_ready(hostmask)
@@ -224,8 +226,10 @@ class Auth(command.CommandPluginSuperclass):
 
         log.msg("user %s is authed as %s. Calling deferred callbacks" % (hostmask, authname))
 
-        # Get the permissions
-        perms = self.permissions[authname]
+        # Get the permissions.
+        # I don't think authname could be None at this point in the code, but
+        # not wanting to analyze it too closely, I'm putting in this check
+        perms = self.permissions[authname] if authname else []
 
         del self.waiting[hostmask]
         for deferred in deferreds:
@@ -242,6 +246,16 @@ class Auth(command.CommandPluginSuperclass):
         if deferreds:
             log.msg("No identity information returned for %s. Returning no permissions" % (hostmask,))
 
+            # Set the authname for this hostmask to None, to avoid doing a
+            # bunch of whois requests at once. This acts as a simple cache to
+            # remember hostmasks that aren't authenticated.
+            self.authd_users[hostmask] = None
+            def cacheprune():
+                if hostmask in self.authd_users and self.authd_users[hostmask] == None:
+                    del self.authd_users[hostmask]
+            reactor.callLater(300, cacheprune)
+
+            # Clear the callbacks waiting for this hostmask and call them
             del self.waiting[hostmask]
             for deferred in deferreds:
                 deferred.callback([])
@@ -265,7 +279,9 @@ class Auth(command.CommandPluginSuperclass):
         # Check if the user is already identified by a previous whois
         if hostmask in self.authd_users:
             authname = self.authd_users[hostmask]
-            perms = self.permissions[authname]
+            # authname could be none, indicating a recent whois for that
+            # hostmask didn't return any auth info
+            perms = self.permissions[authname] if authname else []
             return defer.succeed(perms)
 
         if hostmask in self.waiting:
@@ -421,7 +437,7 @@ class Auth(command.CommandPluginSuperclass):
         else:
             # Get info about the current user
             perms = list((yield self._get_permissions(event.user)))
-            if event.user in self.authd_users:
+            if self.authd_users.get(event.user, None):
                 event.reply("You are identified as %s" % self.authd_users[event.user])
             msgstr = "you have"
 
