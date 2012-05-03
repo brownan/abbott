@@ -84,26 +84,39 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Revokes a user's voice in the current channel"
                 )
 
-        self.install_command(
+        ircadmin = self.install_cmdgroup(
+                grpname="ircadmin",
+                permission="irc.op",
+                helptext="IRC adminstrative commands",
+                )
+
+        ircadmin.install_command(
                 cmdname="op with external command",
                 cmdmatch=None, # uses the cmdname literally
                 cmdusage="<command>",
                 argmatch="(?P<command>.*)$",
-                permission="irc.op",
                 prefix=None,
                 callback=self.set_op_external_command,
                 helptext=None, # will not appear in help text
                 )
-        self.install_command(
+        ircadmin.install_command(
                 cmdname="op with chanserv",
                 cmdmatch=None,
                 cmdusage=None, # no usage
                 argmatch=None, # no arguments
-                permission="irc.op",
                 prefix=None,
                 callback=self.set_op_with_chanserv,
                 helptext=None,
                 )
+
+        ircadmin.install_command(
+                cmdname="optimeout",
+                argmatch=r"(?P<timeout>-?\d+)( (?P<channel>[^ ]+))?$",
+                callback=self.set_op_timeout,
+                cmdusage="<timeout> [channel]",
+                helptext="Sets how long I'll keep OP before I give it up. -1 for forever",
+                )
+                
 
         # Topic commands
         topicgroup = self.install_cmdgroup(
@@ -344,6 +357,30 @@ class IRCAdmin(CommandPluginSuperclass):
     ###
     ### Command callbacks for OP related tasks
     ###
+
+    def set_op_timeout(self, event, match):
+        gd = match.groupdict()
+        channel = gd['channel']
+        timeout = int(gd['timeout'])
+
+        if not channel:
+            channel = event.channel
+            if event.direct:
+                event.reply("on what channel?")
+                return
+
+        self.config['optimeout'][channel] = timeout
+        self.pluginboss.save()
+
+        timeoutevent = self.op_timeout_event.get(channel, None)
+        if timeout < 0:
+            event.reply("Done. I'll never give up my op")
+            if timeoutevent:
+                del self.op_timeout_event[channel]
+        else:
+            event.reply("Done. I'll hold op for %s seconds after I get it" % timeout)
+            if timeoutevent:
+                timeoutevent.reset(timeout)
 
     @require_channel
     def kick(self, event, match):
