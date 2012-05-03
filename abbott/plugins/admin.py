@@ -195,8 +195,9 @@ class IRCAdmin(CommandPluginSuperclass):
         # This var holds whether we currently have OP or not in each channel
         self.have_op = defaultdict(bool)
 
-        if "optimeout" not in self.config:
-            self.config['optimeout'] = 30
+        if "optimeout" not in self.config or \
+                not isinstance(self.config['optimeout'], dict):
+            self.config['optimeout'] = {}
             self.pluginboss.save()
 
         self.listen_for_event("irc.on_mode_change")
@@ -219,9 +220,10 @@ class IRCAdmin(CommandPluginSuperclass):
                 deferred.callback(None)
 
             # Now that we have op, set a timeout to relinquish it
-            if self.config['optimeout'] >= 0:
+            timeout = self._get_op_timeout(event.chan)
+            if timeout >= 0:
                 delayedcall = reactor.callLater(
-                        self.config['optimeout'],
+                        timeout,
                         self._relinquish_op,
                         event.chan)
                 self.op_timeout_event[event.chan] = delayedcall
@@ -230,6 +232,18 @@ class IRCAdmin(CommandPluginSuperclass):
                 event.args[0] == mynick):
             # Op gone
             self.have_op[event.chan] = False
+
+    def _get_op_timeout(self, chan):
+        """Returns the op timeout for the given channel. If one isn't defined
+        in the config, write out the default and save it.
+
+        """
+        try:
+            return self.config['optimeout'][chan]
+        except KeyError:
+            self.config['optimeout'][chan] = 30
+            self.pluginboss.save()
+            return 30
 
     def _relinquish_op(self, chan):
         """This is called by a reactor.callLater() call to relinquish op on the
@@ -274,9 +288,10 @@ class IRCAdmin(CommandPluginSuperclass):
         if self.have_op[channel]:
             # We already have op. Reset the timer if it exists, and return
             # succeess
-            if self.config['optimeout'] >= 0:
+            timeout = self._get_op_timeout(channel)
+            if timeout >= 0:
                 try:
-                    self.op_timeout_event[channel].reset(self.config['optimeout'])
+                    self.op_timeout_event[channel].reset(timeout)
                 except KeyError:
                     pass
             return defer.succeed(None)
