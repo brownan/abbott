@@ -209,7 +209,7 @@ class BotPlugin(object):
             return method(event)
         return event
 
-    ### Convenience method for use by the plugin to install event listeners
+    ### Convenience methods for use by the plugin to install event listeners
     def install_middleware(self, matchstr):
         self.transport.install_middleware(matchstr, self)
 

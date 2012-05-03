@@ -53,8 +53,8 @@ class Auth(command.CommandPluginSuperclass):
     """Auth plugin.
 
     Provides a reliable set of permissions other plugins can rely on. For
-    certain irc events, installs a get_permissions() callback which can be used
-    to query for permissions the user has.
+    certain irc events, installs a has_permission() callback which can be used
+    to query if a user has a particular permission.
     
     """
     def start(self):
@@ -67,11 +67,14 @@ class Auth(command.CommandPluginSuperclass):
         # maps hostmasks to authenticated usernames
         self.authd_users = {}
 
-        # maps nicks to hostmasks. This is used temporarily to correlated
+        # maps nicks to hostmasks. This is used temporarily to correlate
         # separate messages by the server
         self.nick_to_hostmask = {}
 
-        # Maps hostmasks to sets of deferred objects that need calling
+        # Maps hostmasks to sets of deferred objects that are waiting for a
+        # whois request to come back from the server. They get called by
+        # _check_ready() when the response comes in, or by _fail_request() if
+        # the request times out.
         self.waiting = defaultdict(set)
 
         permgroup = self.install_cmdgroup(
@@ -259,6 +262,7 @@ class Auth(command.CommandPluginSuperclass):
         an IRC 330 command back from the server indicating the user's authname
 
         """
+        # Check if the user is already identified by a previous whois
         if hostmask in self.authd_users:
             authname = self.authd_users[hostmask]
             perms = self.permissions[authname]
@@ -293,11 +297,11 @@ class Auth(command.CommandPluginSuperclass):
         indicate a global permission is required.
 
         This function is installed as event.has_permission() by the Auth
-        plugin, and is partially evaluated with the hostname, so it takes one
-        parameter: the permission string.
+        plugin, and is partially evaluated with the hostname already filled in,
+        so only the remaining arguments are specified when calling.
 
         It returns a deferred object which passes to its callback a boolean
-        value: True for the user has access, and False for the user does not.
+        value: True if the user has access, and False if the user does not.
 
         """
         if permission == None:
