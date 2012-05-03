@@ -404,7 +404,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 user=nick,
                 )
         log.msg("Opping %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, voiceevent, event.reply)
+        self._send_event_as_op(channel, opevent, event.reply)
     @require_channel
     def take_op(self, event, match):
         groupdict = match.groupdict()
@@ -419,7 +419,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 user=nick,
                 )
         log.msg("De-Opping %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, voiceevent, event.reply)
+        self._send_event_as_op(channel, opevent, event.reply)
 
     def set_op_external_command(self, event, match):
         """Configure the plugin to use an external command to acquire op.
