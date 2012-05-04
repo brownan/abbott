@@ -13,7 +13,7 @@ def main():
     observer = log.FileLogObserver(sys.stdout)
     observer.timeFormat = "%Y-%m-%d %H:%M:%S"
     log.startLoggingWithObserver(observer.emit)
-    log.msg("Q-bot starting up!")
+    log.msg("Abbott starting up!")
 
     transportobj = transport.Transport()
     boss = pluginbase.PluginBoss(sys.argv[1], transportobj)

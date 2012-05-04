@@ -1,3 +1,6 @@
+from twisted.python.reflect import namedModule
+from twisted.python import log
+
 from ..command import CommandPluginSuperclass
 
 class PluginController(CommandPluginSuperclass):
@@ -30,16 +33,10 @@ class PluginController(CommandPluginSuperclass):
 
         plugingroup.install_command(
                 cmdname="reload",
-                argmatch=r"(?P<plugin>[\w.]+)$",
-                callback=self.reload_plugin,
-                cmdusage="<plugin name>",
-                helptext="Reloads the plugin's module and starts it, unloading it first if necessary. Warning: dynamic plugin reloading can sometimes cause problems!",
-                )
-
-        plugingroup.install_command(
-                cmdname="reloadall",
-                callback=self.reload_all,
-                helptext="reloads all plugins except the IRC plugin",
+                argmatch=r"(?P<module>[\w.]+)$",
+                callback=self.reload_module,
+                cmdusage="<module name>",
+                helptext="Reloads a plugin module. This will unload and load all plugins in this module, re-loading the module into the interpreter in the process.",
                 )
 
         plugingroup.install_command(
@@ -91,44 +88,48 @@ class PluginController(CommandPluginSuperclass):
             raise
         event.reply("Plugin %s has been unloaded." % plugin_name)
 
-    def reload_plugin(self, event, match):
-        plugin_name = match.groupdict()['plugin']
+    def reload_module(self, event, match):
+        module_name = match.groupdict()['module']
 
-        if plugin_name in self.pluginboss.loaded_plugins:
+        # okay, here's what's going to go down. First, we gonna find all the
+        # plugins that use this module. Then we gonna unload them, see? Then we
+        # gonna reload the module. Yeah? That's good. Then we's gonna get them
+        # modules loaded back up. That should do it, ya think? I think it
+        # should. Solid.
 
+        plugins = [x for x in self.pluginboss.loaded_plugins.keys() if x.startswith(module_name+".")]
+        log.msg("Request to reload module %s. Unloading these plugins: %s" % (
+            module_name,
+            ", ".join(plugins),
+            ))
+
+        for plugin_name in plugins:
             try:
                 self.pluginboss.unload_plugin(plugin_name)
             except Exception:
-                event.reply("Something went wrong unloading the plugin. Check the error log for a traceback")
+                event.reply("Something went wrong unloading %s. Some plugins may have been unloaded. Check the error log!" % plugin_name)
                 raise
+            else:
+                log.msg("%s unloaded" % plugin_name)
 
+        module = namedModule("abbott.plugins." + module_name)
         try:
-            self.pluginboss.load_plugin(plugin_name, reload_first=True)
+            reload(module)
         except Exception:
-            event.reply("Something went wrong reloading the plugin. Check the error log for a traceback")
+            event.reply("There was an error reloading the module. None of the plugins were reloaded. Check the log")
             raise
 
-        event.reply("Plugin %s reloaded and running" % plugin_name)
+        log.msg("%s reloaded" % module_name)
 
-    def reload_all(self, event, match):
-        for plugin_name in self.pluginboss.loaded_plugins.keys():
-            if plugin_name == "irc.IRCBotPlugin":
-                continue
-
+        for plugin_name in plugins:
             try:
-                self.pluginboss.unload_plugin(plugin_name)
+                self.pluginboss.load_plugin(plugin_name)
             except Exception:
-                event.reply("Something went wrong unloading %s. Check the error log for a traceback" % plugin_name)
-                log.err("Error unloading %s" % plugin_name)
+                event.reply("Something went wrong loading %s. Please see the error log" % plugin_name)
+            else:
+                log.msg("%s loaded" % plugin_name)
 
-            try:
-                self.pluginboss.load_plugin(plugin_name, reload_first=True)
-            except Exception:
-                event.reply("Something went wrong reloading %s. Check the error log for a traceback" % plugin_name)
-                log.err("Error reloading %s" % plugin_name)
-        event.reply("Done")
-
-
+        event.reply("Finished")
 
     def set_on_startup(self, event, match):
         plugin_name = match.groupdict()['plugin']

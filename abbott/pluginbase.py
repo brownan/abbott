@@ -103,30 +103,16 @@ I'll create a new one for you now""")
         for plugin_name in self.config['core']['plugins']:
             self.load_plugin(plugin_name)
 
-    def load_plugin(self, plugin_name, reload_first=False):
+    def load_plugin(self, plugin_name):
         """Loads the named plugin.
         
         plugin_name is expected to be in the form A.B where A is the module and
         B is the class. This module is expected to live in the plugins package.
-
-        If reload_first is true, the module will be reloaded before the plugin
-        is loaded
         
         """
         modulename, classname = plugin_name.split(".")
         module = __import__("abbott.plugins."+modulename, fromlist=[classname])
         
-        if reload_first:
-
-            # Check to see if we should reload the plugins.command module too
-            contents = set(dir(module))
-            if "command" in contents or "CommandPluginSuperclass" in contents:
-                from . import command
-                reload(command)
-
-            # Reload the module
-            module = reload(module)
-
         pluginclass = getattr(module, classname)
         
         plugin = pluginclass(plugin_name, self._transport, self)

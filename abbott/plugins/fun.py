@@ -7,7 +7,7 @@ from twisted.internet import reactor
 from ..pluginbase import BotPlugin
 
 """
-This module has miscelaneous fun plugins that don't do anything useful
+This module has miscellaneous fun plugins that don't do anything useful
 
 """
 
