@@ -46,14 +46,14 @@ class Repeater(BotPlugin):
             return
 
         delay = random.uniform(0.5, 3)
-        def later():
-            self.lastline = None
-            self.lasttime = time.time()
-            event.reply(direct=False, userprefix=False, notice=False,
-                    msg=event.message)
-        reactor.callLater(delay, later)
+        reactor.callLater(
+                delay,
+                event.reply,
+                direct=False,
+                userprefix=False,
+                notice=False,
+                msg=event.message,
+                )
 
-        # A few more assurances that we won't repeat anything until this one
-        # goes through
         self.lastline = None
-        self.lasttime = time.time() + delay
+        self.lasttime = time.time() + delay + self.timeout
