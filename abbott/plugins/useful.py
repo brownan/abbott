@@ -19,8 +19,8 @@ class TempConverter(BotPlugin):
                 \d+ # Capture a number
                 (?: [.] \d+)? # optional decimal point
             )
-            [ ]? # Optional space
-            (?: degrees[ ] )? # An optional "degrees " spelled out
+            [  ]? # Optional space, or non-breaking space
+            (?: degrees[  ] )? # An optional "degrees " spelled out
             (?: ° )? # An optional degrees sign
             C # Capital C
             (?: elsius|entigrade )? # optionally spelled out
@@ -35,8 +35,8 @@ class TempConverter(BotPlugin):
                 \d+ # Capture a number
                 (?: [.] \d+)? # optional decimal point
             )
-            [ ]? # Optional space
-            (?: degrees[ ] )? # An optional "degrees " spelled out
+            [  ]? # Optional space, or non-breaking space
+            (?: degrees[  ] )? # An optional "degrees " spelled out
             (?: ° )? # An optional degrees sign
             F # Capital F
             (?: ahrenheit )? # optionally spelled out
@@ -62,7 +62,7 @@ class TempConverter(BotPlugin):
                 f = (c * 9 / 5) + 32
                 f = int(round(f))
 
-                replies.append(u"%d°C is %d°F" % (c, f))
+                replies.append(u"%d °C is %d °F" % (c, f))
 
             reply("(btw: " + ", ".join(replies) + ")")
 
@@ -76,6 +76,6 @@ class TempConverter(BotPlugin):
                 c = (f - 32) * 5 / 9
                 c = int(round(c))
 
-                replies.append(u"%d°F is %d°C" % (f, c))
+                replies.append(u"%d °F is %d °C" % (f, c))
 
             reply("(btw: " + ", ".join(replies) + ")")
