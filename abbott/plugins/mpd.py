@@ -93,9 +93,6 @@ class MPDPlugin(CommandPluginSuperclass):
         finally:
             protocol.transport.loseConnection()
 
-        log.msg(status)
-        log.msg(songinfo)
-
         reply = event.reply
         if status['state'] == "play":
             title = songinfo.get('Title', '')
@@ -130,10 +127,11 @@ class MPDPlugin(CommandPluginSuperclass):
                 reply("%s <unknown>" % (
                     self.replyprefix,
                     ))
+
+            if self.config.get("str", None):
+                reply(self.config['str'])
         else:
             reply("Not currently playing")
-        if self.config.get("str", None):
-            reply(self.config['str'])
 
     def set_str(self, event, match):
         gd = match.groupdict()
