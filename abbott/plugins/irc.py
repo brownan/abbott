@@ -1,4 +1,5 @@
 from functools import wraps
+from time import time
 
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, defer
@@ -29,6 +30,28 @@ class IRCBot(irc.IRCClient):
         """Overrides IRCClient.sendLine to encode outgoing lines with UTF-8"""
         if isinstance(line, unicode):
             line = line.encode("UTF-8")
+
+        # Implement some simple rate limiting logic: If a line is received
+        # within 2 seconds of the last line, increment the line_count var. If
+        # line_count is over 5, set lineRate to 2 seconds.
+        time_since_last_line = time() - self.time_of_last_line
+        self.time_of_last_line = time()
+
+        if time_since_last_line < 2:
+            self.line_count += 1
+        else:
+            self.line_count = 0
+
+        if self.line_count >= 5:
+            # Queuing of lines is done by the IRCClient class, we just have to
+            # set this var
+            self.lineRate = 2
+        elif not self._queue:
+            # Only reset here if the queue has been emptied. It's possible the
+            # queue is still emptying, in which case we want to keep the
+            # limited rate up until the queue is emptied.
+            self.lineRate = None
+
         return irc.IRCClient.sendLine(self, line)
 
     def connectionMade(self):
@@ -37,6 +60,10 @@ class IRCBot(irc.IRCClient):
         we can perform
 
         """
+        # These vars are used in rate limiting logic in sendLine()
+        self.time_of_last_line = 0
+        self.line_count = 0
+
         # Can't use super() because twisted doesn't use new-style classes
         irc.IRCClient.connectionMade(self)
         self.factory.client = self

@@ -25,8 +25,8 @@ def require_channel(func):
     return newfunc
 
 class IRCAdmin(CommandPluginSuperclass):
-    """A plugin to do various IRC OP-related tasks. The plugin does not keep
-    op, but acquires it on demand and then drops it.
+    """A plugin to do various IRC OP-related tasks. The plugin automatically
+    drops OP after it performs an OP task, but can be configured to keep OP.
 
     """
 
