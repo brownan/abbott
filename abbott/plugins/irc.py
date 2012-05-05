@@ -1,7 +1,7 @@
 from functools import wraps
 
 from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol
+from twisted.internet import reactor, protocol, defer
 from twisted.internet.ssl import ClientContextFactory
 from twisted.python import log
 
@@ -55,7 +55,7 @@ class IRCBot(irc.IRCClient):
         self.factory.client = None
         irc.IRCClient.connectionLost(self, reason)
 
-        log.msg("Connection lost")
+        log.msg("IRC Connection lost!")
 
     ### The following are things that happen to us
 
@@ -159,11 +159,32 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
     def start(self):
         self.client = None
         self.listen_for_event("irc.do_*")
-        reactor.connectSSL(self.config['server'], self.config['port'], self, ClientContextFactory())
+        self.connector = reactor.connectSSL(self.config['server'], self.config['port'], self, ClientContextFactory())
+
+        # Set a quit handler
+        def shutdown():
+            log.msg("reactor shutdown event triggered, stopping irc bot")
+            self.shutdown_trigger = None
+            self.stop()
+            # Delay the shutdown by one second to give the event a chance to
+            # get through.
+            d = defer.Deferred()
+            reactor.callLater(1, d.callback, None)
+            return d
+        self.shutdown_trigger = reactor.addSystemEventTrigger("before", "shutdown", shutdown)
 
     def stop(self):
+        log.msg("IRCBotPlugin stopping...")
+        if self.shutdown_trigger is not None:
+            reactor.removeSystemEventTrigger(self.shutdown_trigger)
         self.stopTrying()
-        # TODO Figure out how to remove this from the reactor
+        if self.client:
+            log.msg("Sending quit message")
+            self.client.quit("Daisy, daisy...")
+
+        # The server should disconnect us after a QUIT command, but just in
+        # case, terminate the connection after 5 seconds.
+        reactor.callLater(5, self.connector.disconnect)
 
     def buildProtocol(self, addr):
         p = self.protocol()
