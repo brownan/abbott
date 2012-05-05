@@ -454,11 +454,24 @@ class Auth(command.CommandPluginSuperclass):
         else:
             event.reply("%s no global permissions =(" % (msgstr,))
 
-        for perm_chan, perms in perms_map.iteritems():
-            event.reply("In channel %s %s: %s" % (
-                perm_chan, msgstr,
-                ", ".join(perms)
-                ))
+        # If this isn't a direct message, don't show all the other channels
+        if event.direct:
+            for perm_chan, perms in perms_map.iteritems():
+                event.reply("In channel %s %s: %s" % (
+                    perm_chan, msgstr,
+                    ", ".join(perms)
+                    ))
+        elif perms_map:
+            this_chan = perms_map.pop(event.channel, None)
+            if this_chan:
+                event.reply("In channel %s %s: %s" % (
+                    event.channel, msgstr,
+                    ", ".join(this_chan)
+                    ))
+
+            if perms_map:
+                event.reply("Also, %s some permissions in other channels. (Ask me in private to see them)" %
+                        msgstr)
 
 
     ### Default permission callbacks
