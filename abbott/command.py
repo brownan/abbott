@@ -49,7 +49,10 @@ class _CommandGroup(object):
             prefix,
             grpname,
             ))
-        helplines.append("Use 'help %s <subcommand>' for more information on a subcommand" % grpname)
+        helplines.append("Use '%shelp %s <subcommand>' for more information on a subcommand" % (
+            prefix,
+            grpname,
+            ))
 
         self.subcmds = []
         cmdglist.append(_CommandGroupTuple(
