@@ -27,7 +27,10 @@ class IRCBot(irc.IRCClient):
         return irc.IRCClient.lineReceived(self, line)
 
     def sendLine(self, line):
-        """Overrides IRCClient.sendLine to encode outgoing lines with UTF-8"""
+        """Overrides IRCClient.sendLine to encode outgoing lines with UTF-8.
+        Also implements some rate-limiting logic
+        
+        """
         if isinstance(line, unicode):
             line = line.encode("UTF-8")
 

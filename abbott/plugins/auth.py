@@ -24,7 +24,8 @@ def satisfies(user_perm, auth_perm):
     allow admin.bar.foo and admin.baz.foo, but not admin.bar.baz.foo
 
     Globs at the end of permissions match as expected from the above rules.
-    Granting admin.* will allow admin.foo, admin.bar, admin.foo.baz, etc.
+    Granting admin.* will allow admin.foo, admin.bar, admin.foo.baz, etc. (but
+    NOT 'admin' by itself!)
 
     The super-user's permission is simply *
 
