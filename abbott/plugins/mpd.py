@@ -76,9 +76,9 @@ class MPDPlugin(CommandPluginSuperclass):
 
         mpdgroup.install_command(
                 cmdname="setstr",
-                argmatch=r"(?P<str>.*)$",
-                cmdusage="<string>",
-                helptext="Sets the string to display along with the current song",
+                argmatch=r"(?P<str>.+)?$",
+                cmdusage="[string]",
+                helptext="Sets the string to display along with the current song, or removes it.",
                 callback=self.set_str,
                 )
 

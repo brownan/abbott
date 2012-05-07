@@ -140,7 +140,6 @@ class _CommandGroup(object):
             # command doesn't take arguments
             commandargs_str = command_str + "$"
 
-
         # Put together a regular expression string matching the entire command
         # plus the prefix. If this command doesn't give a prefix, go with the
         # group prefix.
