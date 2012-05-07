@@ -8,6 +8,44 @@ from twisted.internet import defer
 
 from .pluginbase import BotPlugin
 
+"""
+
+Overview of the Abbott command system:
+
+Plugins derive from the CommandPluginSuperclass class below. This is a
+derivative of the BotPlugin class and supports all the normal bot plugins, but
+adds some methods and provides easy mechanism for defining "commands".
+
+This command plugin superclass is currently written specifically for the IRC
+plugin.
+
+Commands registered by command plugins are recognized in one of three ways.
+First, if a user prefixes the command with the bot's name, followed by a colon.
+e.g. "abbott: commandname"
+Second: if a prefix is defined for that command. Example: if the prefix "." is
+used, then the line ".commandname" is recognized.
+Third: a global prefix can be defined, which works the same way as above.
+
+Commands can be grouped, in which case you define subcommands. They are treated
+the same way, but are an easy way of not filling up the namespace and for
+organizing commands.
+e.g. "abbott: groupname commandname argument1 argument2"
+
+Commands are declared by calling the method self.install_command in a plugin's
+start() method. See the docstring for _CommandGroup.install_command() for
+information on its arguments.
+
+Command groups are declared by calling self.install_cmdgroup() in a plugin's
+start() method. See the docstring for the
+CommandPluginSuperclass.install_cmdgroup() method for information on its
+arguments and how to use command groups.
+
+This command framework has a few nice features: easily defined commands with
+flexible argument parsing with regular expressions, an integrated help system,
+and automatic permission checking.
+
+"""
+
 class _CommandGroup(object):
     """Internal object created by CommandPluginSuperclass.install_cmdgroup()
 
@@ -266,6 +304,35 @@ class CommandPluginSuperclass(BotPlugin):
             permission=None,
             helptext=None,
             ):
+        """Declares a command group. This returns an object with an
+        install_command() method, which is used to declare commands in this
+        command group. Arguments are the exact same as self.install_command().
+
+        e.g.
+
+            group = self.install_cmdgroup(...)
+            group.install_command(...)
+
+        grpname is the name of this command group. All commands will be under
+        this command group's namespace and invoked with::
+
+            grpname commandname
+
+        prefix is a default prefix to apply to each defined command under this
+        command group. Individual commands can override this, but if they do
+        not define a prefix, this one is used.
+
+        permission is a default permission to apply to each defined command
+        under this command group. Individual commands can override this, but if
+        they do not define a permission, this one is used. (Note that since
+        None is used as the default argument, there is no way to have a
+        subcommand not require permissions if the group defines a permission.)
+
+        helptext is the text to display for help on this group. It is shown if
+        help for the group is requested, or if the group was invoked with an
+        invalid subcommand.
+
+        """
         return _CommandGroup(
                 grpname=grpname,
                 cmdlist=self.__cmds,

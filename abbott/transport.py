@@ -2,6 +2,36 @@ import re
 from collections import defaultdict
 from itertools import chain
 
+"""
+About the Abbott event system:
+
+Events are instances of the Event class below. Each event has a name, which is
+typically a string with dot separators. The convention is that events should be
+hierarchical, like domain.action, such as irc.on_privmsg (which is fired on
+receiving a PRIVMSG command from the IRC server.)
+
+Event objects carry an arbitrary (or rather, event-defined) set of attributes.
+
+Each BotPlugin object can register to be notified when an event is emitted by
+any other plugin. Plugins can register listeners on a particular event name, or
+glob event names such as irc.* or irc.on_*
+
+Globs do not transcend dots, so you must do something like *.* to receive all
+events.
+
+There are two ways to register an event: as a normal listener, or as a
+middleware listener. There are two differences: all middleware listeners are
+called before normal listeners, and middleware listeners have an opportunity to
+edit the event arbitrarily (add or change attributes) or destroy the event (in
+which case no other handlers will be called.
+
+This system allows for things like an auth plugin which inserts authentication
+information into the event for use by other plugins. It's perfectly fine to
+insert callback functions as attributes on the event too, not just values. (See
+the auth.Auth plugin)
+
+"""
+
 class Transport(object):
     """A generalized transport layer to send messages from one plugin to another.
     

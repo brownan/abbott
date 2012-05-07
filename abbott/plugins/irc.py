@@ -9,10 +9,25 @@ from ..pluginbase import BotPlugin
 from ..transport import Event
 from ..command import CommandPluginSuperclass
 
+"""
+This module houses three bot plugins (IRCBotPlugin, IRCController, and
+ReplyInserter) and one twisted Protocol-derived object (IRCBot) used in
+conjunction with IRCBotPlugin (which is also a twisted ClientFactory)
+
+"""
+
 class IRCBot(irc.IRCClient):
+    """This is the IRC protocol object (not a bot plugin). One of these objects
+    is created per connection to an IRC server by the Factory object
+    (IRCBotPlugin) below, in its buildProtocol() method.
+
+    See twisted.words.protocols.irc for more information.
+
+    """
 
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
-    ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS
+    ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS FROM THE IRC
+    ### SERVER
 
     def lineReceived(self, line):
         """Overrides IRCClient.lineReceived to decode incoming strings to unicode"""
@@ -55,8 +70,8 @@ class IRCBot(irc.IRCClient):
 
     def connectionMade(self):
         """This is called by Twisted once the connection has been made, and has
-        access to self.factory. This is where we set up callbacks for actions
-        we can perform
+        access to self.factory. Join the configured channels and do other
+        initialization.
 
         """
         # These vars are used in rate limiting logic in sendLine()
@@ -75,7 +90,7 @@ class IRCBot(irc.IRCClient):
 
     def connectionLost(self, reason):
         """The connection is down and this object is about to be destroyed,
-        unhook our event listeners
+        so do any cleanup here.
         
         """
         self.factory.client = None
@@ -168,7 +183,7 @@ class IRCBot(irc.IRCClient):
                 oldnick=oldnick, newnick=newnick)
 
     def irc_unknown(self, prefix, command, params):
-        """This hooks into all sorts of miscelaneous things the server sends
+        """This hooks into all sorts of miscellaneous things the server sends
         us, including whois replies
 
         """
@@ -180,7 +195,6 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
     """Implements a bot plugin and a twisted protocol client factory.
 
     """
-    protocol = IRCBot
 
     def start(self):
         self.client = None
@@ -213,7 +227,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         reactor.callLater(5, self.connector.disconnect)
 
     def buildProtocol(self, addr):
-        p = self.protocol()
+        p = IRCBot()
         p.factory = self
         p.nickname = self.config['nick']
         return p
@@ -236,6 +250,9 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
 
         # Maps event names to (method names, arguments) that should be called
         # on the client protocol object.
+        # In other words, when an event by the given name comes in, the given
+        # method on the protocol object is called with as many of the named
+        # keyword arguments as it can find from the event object.
         events = {
             'irc.do_join_channel':  ('join',    ('channel',)),
             'irc.do_leave_channel':  ('leave',   ('channel',)),
@@ -268,6 +285,10 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         method(**kwargs)
 
 class IRCController(CommandPluginSuperclass):
+    """This plugin provides a few administrative tasks in conjunction with the
+    IRCBotPlugin.
+
+    """
 
     def start(self):
         super(IRCController, self).start()
