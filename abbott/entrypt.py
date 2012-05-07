@@ -1,12 +1,9 @@
 from . import pluginbase
 from . import transport
 
-from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol
-from twisted.internet.ssl import ClientContextFactory
+from twisted.internet import reactor
 from twisted.python import log
 
-import json
 import sys
 
 def main():

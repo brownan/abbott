@@ -1,6 +1,5 @@
 from __future__ import print_function
 import json
-from copy import copy
 
 class PluginBoss(object):
     """Handles the loading and unloading of plugins and the reading 

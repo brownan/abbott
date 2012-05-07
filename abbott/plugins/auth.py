@@ -6,7 +6,6 @@ from itertools import chain
 from twisted.python import log
 from twisted.internet import defer, reactor
 
-from ..pluginbase import BotPlugin
 from .. import command
 from ..transport import Event
 

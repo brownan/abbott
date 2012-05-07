@@ -1,4 +1,3 @@
-from functools import wraps
 from time import time
 
 from twisted.words.protocols import irc
@@ -10,12 +9,6 @@ from ..pluginbase import BotPlugin
 from ..transport import Event
 from ..command import CommandPluginSuperclass
 
-def decode_utf8_or_88591(s):
-    try:
-        return s.decode("UTF-8")
-    except UnicodeDecodeError:
-        return s.decode("CP1252", 'replace')
-
 class IRCBot(irc.IRCClient):
 
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
@@ -23,7 +16,10 @@ class IRCBot(irc.IRCClient):
 
     def lineReceived(self, line):
         """Overrides IRCClient.lineReceived to decode incoming strings to unicode"""
-        line = decode_utf8_or_88591(line)
+        try:
+            line = line.decode("UTF-8")
+        except UnicodeDecodeError:
+            line = line.decode("CP1252", 'replace')
         return irc.IRCClient.lineReceived(self, line)
 
     def sendLine(self, line):
