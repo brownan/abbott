@@ -30,6 +30,11 @@ information into the event for use by other plugins. It's perfectly fine to
 insert callback functions as attributes on the event too, not just values. (See
 the auth.Auth plugin)
 
+Ideas for the future: a way for plugins to interact directly with each other to
+request information, returning Deferred objects. Useful if one plugin wants to
+ask information from another plugin, but another plugin may not know
+immedaitely. Maybe some kind of "provides" interface.
+
 """
 
 class Transport(object):
