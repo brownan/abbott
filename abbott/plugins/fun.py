@@ -15,8 +15,11 @@ This module has miscellaneous fun plugins that don't do anything useful
 """
 
 class RMSPlugin(CommandPluginSuperclass):
+    timeout = 60*60
+
     def start(self):
         super(RMSPlugin, self).start()
+        self.recent = {}
         self.install_command(
                 cmdname="rmsify",
                 callback=self.rmsify,
@@ -27,7 +30,14 @@ class RMSPlugin(CommandPluginSuperclass):
                 )
 
     def rmsify(self, event, match):
+        user=event.user
         thing = match.groupdict()['text']
+
+        if time.time() < self.recent.get(user, 0)+self.timeout:
+            event.reply("Try again later")
+            return
+        else:
+            self.recent[user] = time.time()
 
         quote = u"""
 I’d just like to interject for a moment. What you’re refering to as {0}, is in fact, GNU/{0}, or as I’ve recently taken to calling it, GNU plus {0}.
