@@ -116,6 +116,29 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdusage="<timeout> [channel]",
                 helptext="Sets how long I'll keep OP before I give it up. -1 for forever",
                 )
+
+        # Quiet commands
+        self.install_command(
+                cmdname="quiet",
+                cmdmatch="quiet|QUIET",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                permission=None,
+                prefix=".",
+                callback=self.quiet,
+                helptext="Quiets a user"
+                )
+
+        self.install_command(
+                cmdname="unquiet",
+                cmdmatch="unquiet|UNQUIET",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                permission=None,
+                prefix=".",
+                callback=self.unquiet,
+                helptext="Un-quiets a user"
+                )
                 
 
         # Topic commands
@@ -457,6 +480,36 @@ class IRCAdmin(CommandPluginSuperclass):
                 )
         log.msg("De-Opping %s in %s" % (nick, channel))
         self._send_event_as_op(channel, opevent, event.reply)
+
+    @require_channel
+    def quiet(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        channel = event.channel
+
+        newevent = Event("irc.do_mode",
+                chan=channel,
+                set=True,
+                modes="q",
+                user=nick,
+                )
+        log.msg("quieting %s in %s" % (nick, channel))
+        self._send_event_as_op(channel, newevent, event.reply)
+
+    @require_channel
+    def unquiet(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        channel = event.channel
+
+        newevent = Event("irc.do_mode",
+                chan=channel,
+                set=False,
+                modes="q",
+                user=nick,
+                )
+        log.msg("unquieting %s in %s" % (nick, channel))
+        self._send_event_as_op(channel, newevent, event.reply)
 
     def set_op_external_command(self, event, match):
         """Configure the plugin to use an external command to acquire op.

@@ -439,6 +439,8 @@ class Auth(command.CommandPluginSuperclass):
             perms = list((yield self._get_permissions(event.user)))
             if self.authd_users.get(event.user, None):
                 event.reply("You are identified as %s" % self.authd_users[event.user])
+            else:
+                event.reply("I don't know who you are")
             msgstr = "you have"
 
         perms.extend(self.config['defaultperms'])
