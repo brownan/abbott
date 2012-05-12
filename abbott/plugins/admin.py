@@ -84,6 +84,29 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Revokes a user's voice in the current channel"
                 )
 
+        # Quiet commands
+        self.install_command(
+                cmdname="quiet",
+                cmdmatch="quiet|QUIET",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                prefix=".",
+                permission="irc.op.quiet",
+                callback=self.quiet,
+                helptext="Quiets a user"
+                )
+
+        self.install_command(
+                cmdname="unquiet",
+                cmdmatch="unquiet|UNQUIET",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                prefix=".",
+                permission="irc.op.quiet",
+                callback=self.unquiet,
+                helptext="Un-quiets a user"
+                )
+
         ircadmin = self.install_cmdgroup(
                 grpname="ircadmin",
                 permission="irc.op",
@@ -117,28 +140,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Sets how long I'll keep OP before I give it up. -1 for forever",
                 )
 
-        # Quiet commands
-        self.install_command(
-                cmdname="quiet",
-                cmdmatch="quiet|QUIET",
-                cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
-                permission=None,
-                prefix=".",
-                callback=self.quiet,
-                helptext="Quiets a user"
-                )
-
-        self.install_command(
-                cmdname="unquiet",
-                cmdmatch="unquiet|UNQUIET",
-                cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
-                permission=None,
-                prefix=".",
-                callback=self.unquiet,
-                helptext="Un-quiets a user"
-                )
                 
 
         # Topic commands
