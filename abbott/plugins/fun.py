@@ -58,7 +58,7 @@ The kernel is an essential part of an operating system, but useless by itself; i
 
 class Repeater(BotPlugin):
     matcher = re.compile(r"^[^!\. ][^ ]{0,5}$")
-    timeout = 5
+    timeout = 90
     chance = 0.7
 
     def start(self):

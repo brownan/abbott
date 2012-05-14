@@ -269,6 +269,13 @@ class IRCAdmin(CommandPluginSuperclass):
                 event.args[0] == mynick):
             # Op gone
             self.have_op[event.chan] = False
+            try:
+                timeoutevent = self.op_timeout_event[event.chan]
+            except KeyError:
+                pass
+            else:
+                timeoutevent.cancel()
+                del self.op_timeout_event[event.chan]
 
     def _get_op_timeout(self, chan):
         """Returns the op timeout for the given channel. If one isn't defined
@@ -388,10 +395,10 @@ class IRCAdmin(CommandPluginSuperclass):
         timeout = int(gd['timeout'])
 
         if not channel:
-            channel = event.channel
             if event.direct:
                 event.reply("on what channel?")
                 return
+            channel = event.channel
 
         self.config['optimeout'][channel] = timeout
         self.pluginboss.save()
@@ -400,11 +407,22 @@ class IRCAdmin(CommandPluginSuperclass):
         if timeout < 0:
             event.reply("Done. I'll never give up my op")
             if timeoutevent:
+                timeoutevent.cancel()
                 del self.op_timeout_event[channel]
         else:
             event.reply("Done. I'll hold op for %s seconds after I get it" % timeout)
             if timeoutevent:
                 timeoutevent.reset(timeout)
+            elif self.hasop[channel]:
+                # Set a new timeout event
+                timeout = self._get_op_timeout(channel)
+                if timeout >= 0:
+                    delayedcall = reactor.callLater(
+                            timeout,
+                            self._relinquish_op,
+                            channel)
+                    self.op_timeout_event[channel] = delayedcall
+
 
     @require_channel
     def kick(self, event, match):
