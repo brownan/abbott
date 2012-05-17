@@ -65,8 +65,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="voice",
                 cmdmatch="voice|VOICE",
-                cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
+                cmdusage="[nick]",
+                argmatch = "(?P<nick>[^ ]+)?$",
                 permission="irc.op.voice",
                 prefix=".",
                 callback=self.voice,
@@ -76,8 +76,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="devoice",
                 cmdmatch="devoice|DEVOICE",
-                cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
+                cmdusage="[nick]",
+                argmatch = "(?P<nick>[^ ]+)?$",
                 permission="irc.op.voice",
                 prefix=".",
                 callback=self.devoice,
@@ -444,6 +444,8 @@ class IRCAdmin(CommandPluginSuperclass):
     def voice(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
         channel = event.channel
 
         voiceevent = Event("irc.do_mode",
@@ -458,6 +460,8 @@ class IRCAdmin(CommandPluginSuperclass):
     def devoice(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
         channel = event.channel
 
         voiceevent = Event("irc.do_mode",

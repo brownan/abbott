@@ -417,11 +417,11 @@ class CommandPluginSuperclass(BotPlugin):
             # list. If so, return a different message suggesting that the user
             # logs in.
             # XXX This is a slight hack. We should really have a mechanism for
-            # the auth plugin to distinguish between a logged-in user with no
-            # permissions, and a user that is logged out (and therefore has no
-            # permissions). Instead, here we just check to see if the user
-            # /would/ have had permission had their nickname been their
-            # authname and they had been logged in with that authname
+            # the auth plugin to distinguish between a logged-in user with
+            # insufficient permissions, and a user that is logged out (and
+            # therefore has no permissions). Instead, here we just check to see
+            # if the user /would/ have had permission had their nickname been
+            # their authname and they had been logged in with that authname
             nick = event.user.split("!",1)[0]
             authplugin = self.pluginboss.loaded_plugins['auth.Auth']
             from .plugins.auth import satisfies
