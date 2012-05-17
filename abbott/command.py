@@ -410,6 +410,43 @@ class CommandPluginSuperclass(BotPlugin):
             cmd.callback(event, match)
         else:
             log.msg("User %s does not have permission for %s" % (event.user, cmd.cmdname))
+
+            # Before we reply with a scathing retort to the user that tried to
+            # invoke a command they shouldn't, check to see if the user's
+            # nickname matches an authname in the auth plugin's permission
+            # list. If so, return a different message suggesting that the user
+            # logs in.
+            # XXX This is a slight hack. We should really have a mechanism for
+            # the auth plugin to distinguish between a logged-in user with no
+            # permissions, and a user that is logged out (and therefore has no
+            # permissions). Instead, here we just check to see if the user
+            # /would/ have had permission had their nickname been their
+            # authname and they had been logged in with that authname
+            nick = event.user.split("!",1)[0]
+            authplugin = self.pluginboss.loaded_plugins['auth.Auth']
+            from .plugins.auth import satisfies
+            if nick in authplugin.permissions and authplugin.permissions[nick]:
+                perms = authplugin.permissions[nick]
+                # Now check if any permission in perms grants the required
+                # permission. Some of this code is swiped from the
+                # has_permission() method
+                for perm_channel, user_perm in perms:
+                    if not (
+                            perm_channel is None or
+                            perm_channel == event.channel
+                            ):
+                        continue
+                    if satisfies(user_perm, cmd.permission):
+                        event.reply("You would have access to this command, but you need to identify yourself first.")
+                        # Erase this user from the permission cache here, just
+                        # so they can identify and try again immediately
+                        try:
+                            del authplugin.authd_users[event.user]
+                        except KeyError:
+                            pass
+                        return
+
+            # None of those checks above worked? Go ahead and issue our retort!
             replies = self.pluginboss.config.get('command',{}).get('denied_msgs',[])
             if not replies or event.direct:
                 event.reply(notice=True, direct=True,

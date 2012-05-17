@@ -253,7 +253,7 @@ class Auth(command.CommandPluginSuperclass):
             def cacheprune():
                 if hostmask in self.authd_users and self.authd_users[hostmask] == None:
                     del self.authd_users[hostmask]
-            reactor.callLater(300, cacheprune)
+            reactor.callLater(60, cacheprune)
 
             # Clear the callbacks waiting for this hostmask and call them
             del self.waiting[hostmask]
@@ -383,6 +383,12 @@ class Auth(command.CommandPluginSuperclass):
         # Make a copy... don't store the defaultdict (probably wouldn't matter though)
         self.config['perms'] = dict(self.permissions)
         self.pluginboss.save()
+
+    ### Reload event
+    def reload(self):
+        super(Auth, self).reload()
+        self.permissions = defaultdict(list)
+        self.permissions.update(self.config.get('perms', {}))
 
     ### The command plugin callbacks, installed above
 
@@ -519,9 +525,3 @@ class Auth(command.CommandPluginSuperclass):
             event.reply("Default permissions for channel %s: %s" % (
                 perm_chan,
                 ", ".join(perms)))
-
-    ### Reload event
-    def reload(self):
-        super(Auth, self).reload()
-        self.permissions = defaultdict(list)
-        self.permissions.update(self.config.get('perms', {}))
