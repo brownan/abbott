@@ -377,8 +377,21 @@ class ReplyInserter(CommandPluginSuperclass):
                 cmdname="echo",
                 callback=lambda event,match: event.reply(match.groupdict()['msg']),
                 cmdusage="<text to echo>",
-                argmatch="(?P<msg>.*)$",
+                argmatch="(?P<msg>.+)$",
                 helptext="Echos text back to where it came",
+                )
+
+        self.install_command(
+                cmdname="echoto",
+                callback=lambda event,match: self.transport.send_event(
+                    Event("irc.do_msg",
+                        user=match.groupdict()['channel'],
+                        message=match.groupdict()['msg'],
+                    )),
+                permission="irc.echoto",
+                cmdusage="<channel> <text to echo>",
+                argmatch="(?P<channel>[^ ]+) (?P<msg>.+)$",
+                helptext="Echos text to the given channel",
                 )
 
 
