@@ -1,8 +1,13 @@
 # encoding: UTF-8
 import re
 from functools import partial
+import os
+
+from twisted.internet import defer
+from twisted.internet.utils import getProcessOutput
 
 from ..pluginbase import BotPlugin
+from ..command import CommandPluginSuperclass
 
 """
 Miscellaneous, useful plugins
@@ -79,3 +84,79 @@ class TempConverter(BotPlugin):
                 replies.append(u"%d °F is %d °C" % (f, c))
 
             reply("(btw: " + ", ".join(replies) + ")")
+
+class Units(CommandPluginSuperclass):
+    def start(self):
+        super(Units, self).start()
+
+        self.install_command(
+                cmdname="convert",
+                cmdmatch="convert|units",
+                cmdusage="<from unit> [to <to unit>]",
+                argmatch="(?P<from>.+?)(?: to (?P<to>.+))?$",
+                permission=None,
+                helptext="Invokes the 'units' command to do a unit conversion.",
+                callback=self.invoke_units,
+                )
+
+
+    @defer.inlineCallbacks
+    def invoke_units(self, event, match):
+        gd = match.groupdict()
+        if gd['to']:
+            args = [gd['from'], gd['to']]
+        else:
+            args = [gd['from']]
+        output = (yield getProcessOutput(
+            "/usr/bin/units",
+            [ "--verbose", ] + args,
+            errortoo=True,
+            ))
+
+        for line in output.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            event.reply(line)
+
+class Mueval(CommandPluginSuperclass):
+    def start(self):
+        super(Mueval, self).start()
+
+        self.install_command(
+                cmdname="mueval",
+                cmdusage="<expression>",
+                argmatch="(?P<expression>.+)$",
+                permission=None,
+                helptext="Evaluates a line of Haskell and replies with the output.",
+                callback=self.invoke_mueval,
+                )
+
+
+    @defer.inlineCallbacks
+    def invoke_mueval(self, event, match):
+        gd = match.groupdict()
+        output = (yield getProcessOutput(
+            "/usr/bin/env",
+            [ "mueval",
+               "-t", "5",
+               "-XBangPatterns",
+               "-XImplicitParams",
+               "-XNoMonomorphismRestriction",
+               "-XTupleSections",
+               "-XViewPatterns",
+               "-i",
+               "-e", gd["expression"],
+               ],
+            errortoo=True,
+            env=os.environ,
+            ))
+
+        for line in output.split("\n")[1:3]:
+            line = line.strip()
+            if not line:
+                continue
+            maxlen = 200
+            if len(line) >= maxlen:
+                line = line[:maxlen-3] + "..."
+            event.reply(line)
