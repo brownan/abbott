@@ -152,10 +152,14 @@ class Mueval(CommandPluginSuperclass):
             env=os.environ,
             ))
 
-        for line in output.split("\n")[1:3]:
-            line = line.strip()
-            if not line:
-                continue
+        lines = output.split("\n")
+        lines = [x.strip() for x in lines]
+        lines = [x for x in lines if x]
+
+        if len(lines) > 1:
+            lines = lines[1:3]
+
+        for line in lines:
             maxlen = 200
             if len(line) >= maxlen:
                 line = line[:maxlen-3] + "..."
