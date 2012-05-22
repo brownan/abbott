@@ -238,6 +238,7 @@ class IRCAdmin(CommandPluginSuperclass):
             self.pluginboss.save()
 
         self.listen_for_event("irc.on_mode_change")
+        self.listen_for_event("irc.on_join")
 
     def on_event_irc_on_mode_change(self, event):
         """A mode has changed. If we now have op, call all the callbacks in
@@ -276,6 +277,22 @@ class IRCAdmin(CommandPluginSuperclass):
             else:
                 timeoutevent.cancel()
                 del self.op_timeout_event[event.chan]
+
+    def on_event_irc_on_join(self, event):
+        """If we find ourself joining a channel that we thought we had op, then
+        we actually don't anymore. This happens on disconnects/reconnects or on
+        a manual part/join. Anything that doesn't involve this plugin being
+        restarted.
+
+        """
+        self.have_op[event.channel] = False
+        try:
+            timeoutevent = self.op_timeout_event[event.channel]
+        except KeyError:
+            pass
+        else:
+            timeoutevent.cancel()
+            del self.op_timeout_event[event.channel]
 
     def _get_op_timeout(self, chan):
         """Returns the op timeout for the given channel. If one isn't defined

@@ -91,7 +91,7 @@ class Units(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="convert",
-                cmdmatch="convert|units",
+                cmdmatch="convert|units?",
                 cmdusage="<from unit> [to <to unit>]",
                 argmatch="(?P<from>.+?)(?: to (?P<to>.+))?$",
                 permission=None,
@@ -145,6 +145,7 @@ class Mueval(CommandPluginSuperclass):
                "-XNoMonomorphismRestriction",
                "-XTupleSections",
                "-XViewPatterns",
+               "-XScopedTypeVariables",
                "-i",
                "-e", gd["expression"],
                ],
@@ -155,9 +156,6 @@ class Mueval(CommandPluginSuperclass):
         lines = output.split("\n")
         lines = [x.strip() for x in lines]
         lines = [x for x in lines if x]
-
-        if len(lines) > 1:
-            lines = lines[1:3]
 
         for line in lines:
             maxlen = 200

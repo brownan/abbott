@@ -195,6 +195,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
     """Implements a bot plugin and a twisted protocol client factory.
 
     """
+    maxDelay = 60*5
 
     def start(self):
         self.client = None
