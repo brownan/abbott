@@ -74,6 +74,15 @@ class IRCBot(irc.IRCClient):
         initialization.
 
         """
+
+        # Connection is successful
+        # Reset the delay from the reconnecting factory
+        try:
+            self.factory.resetDelay()
+        except AttributeError:
+            # but don't error if it's not a reconnecting factory
+            pass
+
         # These vars are used in rate limiting logic in sendLine()
         self.time_of_last_line = 0
         self.line_count = 0
