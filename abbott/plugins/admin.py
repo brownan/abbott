@@ -17,8 +17,7 @@ def require_channel(func):
     """
     @wraps(func)
     def newfunc(self, event, match):
-        mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
-        if mynick == event.channel:
+        if event.direct:
             event.reply("Hey, you can't do that in here!")
         else:
             return func(self, event, match)
