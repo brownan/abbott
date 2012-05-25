@@ -109,7 +109,7 @@ class Units(CommandPluginSuperclass):
             args = [gd['from']]
         output = (yield getProcessOutput(
             "/usr/bin/units",
-            [ "--verbose", ] + args,
+            [ "--verbose", "--"] + args,
             errortoo=True,
             ))
 
