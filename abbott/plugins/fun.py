@@ -8,6 +8,7 @@ from twisted.python import log
 
 from ..pluginbase import BotPlugin
 from ..command import CommandPluginSuperclass
+from ..transport import Event
 
 """
 This module has miscellaneous fun plugins that don't do anything useful
@@ -102,3 +103,44 @@ class Repeater(BotPlugin):
 
         self.lastline = None
         self.lasttime = time.time() + delay + self.timeout
+
+class Reverse(CommandPluginSuperclass):
+    def start(self):
+        super(Reverse, self).start()
+
+        self.on = False
+
+        self.install_middleware("irc.do_msg")
+        self.listen_for_event("irc.on_privmsg")
+
+        self.install_command(
+                cmdname="reverse polarity",
+                callback=self.reverse,
+                helptext="Reverse the polarity",
+                )
+
+
+    def reverse(self, event, match):
+        self.on = not self.on
+        event.reply("Polarity reversed!")
+        
+    def on_middleware_irc_do_msg(self, event):
+
+        if self.on:
+            event.message = event.message[::-1]
+
+        return event
+
+    def on_event_irc_on_privmsg(self, event):
+
+        if self.on and not hasattr(event, "_reversed"):
+            revent = Event("irc.on_privmsg")
+            revent.__dict__.update(event.__dict__)
+            revent.message = revent.message[::-1]
+            revent._reversed = True
+            self.transport.send_event(revent)
+
+        # Do this second. This will process the command, turning it on, so this
+        # needs to go here to avoid loopbacks
+        super(Reverse, self).on_event_irc_on_privmsg(event)
+
