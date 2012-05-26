@@ -2,9 +2,12 @@
 import re
 from functools import partial
 import os
+from StringIO import StringIO
 
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 from twisted.internet.utils import getProcessOutput
+from twisted.python import log
+from twisted.internet.protocol import ProcessProtocol
 
 from ..pluginbase import BotPlugin
 from ..command import CommandPluginSuperclass
@@ -120,6 +123,15 @@ class Units(CommandPluginSuperclass):
             event.reply(line)
 
 class Mueval(CommandPluginSuperclass):
+    class MuevalProtocol(ProcessProtocol):
+        def __init__(self, d):
+            self.d = d
+            self.s = StringIO()
+        def outReceived(self, text):
+            self.s.write(text)
+        def processEnded(self, reason):
+            self.d.callback(self.s.getvalue())
+
     def start(self):
         super(Mueval, self).start()
 
@@ -136,26 +148,29 @@ class Mueval(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def invoke_mueval(self, event, match):
         gd = match.groupdict()
-        output = (yield getProcessOutput(
-            "/usr/bin/env",
-            [ "mueval",
-               "-t", "5",
-               "-XBangPatterns",
-               "-XImplicitParams",
-               "-XNoMonomorphismRestriction",
-               "-XTupleSections",
-               "-XViewPatterns",
-               "-XScopedTypeVariables",
-               "-i",
-               "-e", gd["expression"],
-               ],
-            errortoo=True,
-            env=os.environ,
-            ))
+        d = defer.Deferred()
+        reactor.spawnProcess(
+                Mueval.MuevalProtocol(d),
+                "/usr/bin/env",
+                [ "/usr/bin/env",
+                   "mueval",
+                   "-t", "5",
+                   "-XBangPatterns",
+                   "-XImplicitParams",
+                   "-XNoMonomorphismRestriction",
+                   "-XTupleSections",
+                   "-XViewPatterns",
+                   "-XScopedTypeVariables",
+                   "-e", gd["expression"].encode("UTF-8"),
+                   ],
+                env=os.environ,
+            )
+        output = (yield d)
 
         lines = output.split("\n")
         lines = [x.strip() for x in lines]
         lines = [x for x in lines if x]
+        lines = ["; ".join(lines)]
 
         for line in lines:
             maxlen = 200
