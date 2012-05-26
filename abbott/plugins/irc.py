@@ -1,4 +1,5 @@
 from time import time
+import unicodedata
 
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, defer
@@ -42,8 +43,18 @@ class IRCBot(irc.IRCClient):
         Also implements some rate-limiting logic
         
         """
-        if isinstance(line, unicode):
-            line = line.encode("UTF-8")
+        if isinstance(line, str):
+            line = line.decode("ASCII")
+
+        # Do some filtering. Make sure no characters are control characters,
+        # except perhaps for some color control characters
+        whitelist = frozenset(u"\x02\x0c\x0f\x16\x1f")
+        line = "".join(x for x in line if
+                unicodedata.category(x) != "Cc" or
+                x in whitelist
+                )
+
+        line = line.encode("UTF-8")
 
         # Implement some simple rate limiting logic: If a line is received
         # within 2 seconds of the last line, increment the line_count var. If
