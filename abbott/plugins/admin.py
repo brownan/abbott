@@ -681,7 +681,7 @@ class IRCAdmin(CommandPluginSuperclass):
             try:
                 topic_parts[pos] = text
             except IndexError:
-                reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
+                event.reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
                 return
 
 
@@ -709,7 +709,7 @@ class IRCAdmin(CommandPluginSuperclass):
             try:
                 del topic_parts[pos]
             except IndexError:
-                reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
+                event.reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
                 return
 
             newtopic = " | ".join(topic_parts)
