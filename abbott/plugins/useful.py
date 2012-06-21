@@ -224,4 +224,4 @@ class URLShortener(BotPlugin):
         log.msg("Shortening '%s'" % url)
         shortened = self.shortener.shorten(url)
 
-        event.reply("^ %s" % shortened['id'])
+        event.reply("^ %s" % shortened['id'], userprefix=False)
