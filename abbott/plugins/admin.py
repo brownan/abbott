@@ -184,6 +184,11 @@ class IRCAdmin(CommandPluginSuperclass):
                 callback=self.topicremove,
                 helptext="Removes the pos'th topic selection",
                 )
+        topicgroup.install_command(
+                cmdname="pop",
+                callback=self.topicpop,
+                helptext="Removes the last topic item",
+                )
 
         topicgroup.install_command(
                 cmdname="undo",
@@ -636,7 +641,7 @@ class IRCAdmin(CommandPluginSuperclass):
             currenttopic += " | " + match.groupdict()['text']
             topicevent = self._get_change_topic_event(channel, currenttopic)
             if channel in self.config['requiresop']:
-                self._send_event_as_op(chanel,
+                self._send_event_as_op(channel,
                         topicevent,
                         event.reply)
             else:
@@ -660,7 +665,7 @@ class IRCAdmin(CommandPluginSuperclass):
             topicevent = self._get_change_topic_event(channel, newtopic)
 
             if channel in self.config['requiresop']:
-                self._send_event_as_op(chanel,
+                self._send_event_as_op(channel,
                         topicevent,
                         event.reply)
             else:
@@ -689,7 +694,7 @@ class IRCAdmin(CommandPluginSuperclass):
             topicevent = self._get_change_topic_event(channel, newtopic)
 
             if channel in self.config['requiresop']:
-                self._send_event_as_op(chanel,
+                self._send_event_as_op(channel,
                         topicevent,
                         event.reply)
             else:
@@ -716,7 +721,31 @@ class IRCAdmin(CommandPluginSuperclass):
             topicevent = self._get_change_topic_event(channel, newtopic)
 
             if channel in self.config['requiresop']:
-                self._send_event_as_op(chanel,
+                self._send_event_as_op(channel,
+                        topicevent,
+                        event.reply)
+            else:
+                self.transport.send_event(topicevent)
+        self._get_current_topic(channel).addCallbacks(callback,
+                lambda _: event.reply("Could not determine current topic"))
+
+    @require_channel
+    def topicpop(self, event, match):
+        channel = event.channel
+
+        def callback(currenttopic):
+            topic_parts = [x.strip() for x in currenttopic.split("|")]
+            try:
+                del topic_parts[-1]
+            except IndexError:
+                event.reply("There are only %s topic parts. Remember indexes start at 0" % len(topic_parts))
+                return
+
+            newtopic = " | ".join(topic_parts)
+            topicevent = self._get_change_topic_event(channel, newtopic)
+
+            if channel in self.config['requiresop']:
+                self._send_event_as_op(channel,
                         topicevent,
                         event.reply)
             else:
@@ -740,7 +769,7 @@ class IRCAdmin(CommandPluginSuperclass):
         topicevent = self._get_change_topic_event(channel, newtopic)
 
         if channel in self.config['requiresop']:
-            self._send_event_as_op(chanel,
+            self._send_event_as_op(channel,
                     topicevent,
                     event.reply)
         else:

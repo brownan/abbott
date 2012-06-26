@@ -179,7 +179,7 @@ class Mueval(CommandPluginSuperclass):
             event.reply(line)
 
 class URLShortener(BotPlugin):
-    minlength=80
+    minlength=110
     urlmatcher = re.compile(r"""
         \b
         (                       # Capture 1: entire matched URL
