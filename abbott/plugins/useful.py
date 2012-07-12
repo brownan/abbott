@@ -88,6 +88,44 @@ class TempConverter(BotPlugin):
 
             reply("(btw: " + ", ".join(replies) + ")")
 
+class MyProcessProtocol(ProcessProtocol):
+    """Runs a command, and calls a callback with output and optionally stderr
+    on exit. Optional timeout, too!
+
+    """
+    def __init__(self, callback, stderr=False, timeout=0, timeoutstr=""):
+        self.callback=callback
+        self.capstderr=stderr
+        self.timeout = timeout
+        self.timeoutstr = timeoutstr
+        self.running=True
+
+        self.output = StringIO()
+
+
+    def timed_out(self):
+        if self.running:
+            self.transport.signalProcess("KILL")
+            self.running=False
+            if self.timeoutstr:
+                self.callback.callback(self.timeoutstr)
+
+    def connectionMade(self):
+        if self.timeout:
+            self.timer = reactor.callLater(self.timeout, self.timed_out)
+
+    def outReceived(self, data):
+        self.output.write(data)
+    def errReceived(self, data):
+        if self.capstderr:
+            self.output.write(data)
+
+    def processEnded(self, status):
+        if self.running:
+            self.running = False
+            self.callback.callback(self.output.getvalue())
+        
+
 class Units(CommandPluginSuperclass):
     def start(self):
         super(Units, self).start()
@@ -102,6 +140,39 @@ class Units(CommandPluginSuperclass):
                 callback=self.invoke_units,
                 )
 
+        self.install_command(
+                cmdname="define",
+                cmdusage="<unitname> [as] <unitdefinition>",
+                argmatch=r"(?P<name>\w+) (?:as )?(?P<def>.+)$",
+                helptext="Define a new unit for use with the units command",
+                callback=self.define,
+                )
+
+    def define(self, event, match):
+        gd = match.groupdict()
+        unitname = gd['name']
+        definition = gd['def']
+
+        with open("customunits.dat", "r") as cu:
+            contents = cu.readlines()
+
+        with open("customunits.dat", "w") as out:
+            redef = False
+            for line in contents:
+                try:
+                    if line.split()[0].lower() == unitname.lower():
+                        redef=True
+                        continue
+                except IndexError:
+                    pass
+                out.write(line)
+
+            out.write("%s\t%s\n" % (unitname, definition))
+
+        if redef:
+            event.reply("Unit %s redefined as %s" % (unitname, definition))
+        else:
+            event.reply("Unit %s now defined as %s" % (unitname, definition)) 
 
     @defer.inlineCallbacks
     def invoke_units(self, event, match):
@@ -110,12 +181,28 @@ class Units(CommandPluginSuperclass):
             args = [gd['from'], gd['to']]
         else:
             args = [gd['from']]
-        output = (yield getProcessOutput(
-            "/usr/bin/units",
-            [ "--verbose", "--"] + args,
-            errortoo=True,
-            ))
-
+        try:
+            open("customunits.dat", "r").close()
+        except IOError:
+            open("customunits.dat", "w").close()
+        d = defer.Deferred()
+        reactor.spawnProcess(
+                MyProcessProtocol(d,
+                    stderr=False,
+                    timeout=2,
+                    timeoutstr="Command timed out. Do you have a circular definition?",
+                    ),
+                "/usr/bin/units",
+                [
+                    "/usr/bin/units",
+                    "--verbose", 
+                    "-f", "customunits.dat",
+                    "-f", "",
+                    "--"
+                ] + args,
+                )
+        output = (yield d)
+                
         for line in output.split("\n"):
             line = line.strip()
             if not line:
@@ -179,7 +266,7 @@ class Mueval(CommandPluginSuperclass):
             event.reply(line)
 
 class URLShortener(BotPlugin):
-    minlength=110
+    minlength=95
     urlmatcher = re.compile(r"""
         \b
         (                       # Capture 1: entire matched URL

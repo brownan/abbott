@@ -316,7 +316,7 @@ class IRCController(CommandPluginSuperclass):
         
         self.install_command(
                 cmdname="join",
-                argmatch=r"(?P<channel>#+\w+)$",
+                argmatch=r"(?P<channel>#+[\w-]+)$",
                 permission="irc.control",
                 callback=self.join,
                 cmdusage="<channel>",
@@ -326,7 +326,7 @@ class IRCController(CommandPluginSuperclass):
         self.install_command(
                 cmdname="part",
                 cmdmatch="part|leave",
-                argmatch="(?P<channel>#+\w+)?$",
+                argmatch="(?P<channel>#+[\w-]+)?$",
                 permission="irc.control",
                 callback=self.part,
                 cmdusage="[channel]",

@@ -151,7 +151,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         topicgroup.install_command(
                 cmdname="append",
-                cmdmatch=None,
+                cmdmatch="append|push",
                 cmdusage="<text>",
                 argmatch="(?P<text>.+)$",
                 permission=None, # Inherits permissions from the group
@@ -169,7 +169,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         topicgroup.install_command(
                 cmdname="replace",
-                cmdmatch=None,
+                cmdmatch="set|replace",
                 cmdusage="<pos> <text>",
                 argmatch=r"(?P<pos>-?\d+) (?P<text>.+)$",
                 callback=self.topicreplace,
