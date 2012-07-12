@@ -22,6 +22,8 @@ class TempConverter(BotPlugin):
             # Make sure it's either at the beginning of a word, beginning of the
             # line, or at least not proceeded by an alphanumeric character
             (?: \A | \b | [ ] )
+            (?<![%]) # Negative lookbehind assertion to exclude temps that
+                     # come after a %
             (
                 -? # optional minus
                 \d+ # Capture a number
@@ -38,6 +40,8 @@ class TempConverter(BotPlugin):
             # Make sure it's either at the beginning of a word, beginning of the
             # line, or at least not proceeded by an alphanumeric character
             (?: \A | \b | [ ] )
+            (?<![%]) # Negative lookbehind assertion to exclude temps that
+                     # come after a %
             (
                 -? # optional minus
                 \d+ # Capture a number
