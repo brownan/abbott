@@ -147,7 +147,7 @@ class Units(CommandPluginSuperclass):
         self.install_command(
                 cmdname="define",
                 cmdusage="<unitname> [as] <unitdefinition>",
-                argmatch=r"(?P<name>\w+) (?:as )?(?P<def>.+)$",
+                argmatch=r"(?P<name>\w+-?) (?:as )?(?P<def>.+)$",
                 helptext="Define a new unit for use with the units command",
                 callback=self.define,
                 )
