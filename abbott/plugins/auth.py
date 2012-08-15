@@ -85,7 +85,8 @@ class Auth(command.CommandPluginSuperclass):
                 )
 
         permgroup.install_command(
-                cmdname="add",
+                cmdname="grant",
+                cmdmatch="add|grant",
                 argmatch=r"(?P<name>\w+) (?P<perm>[^ ]+)(?: (?P<channel>[^ ]+))?$",
                 callback=self.permission_add,
                 cmdusage="<authname> <permission> [channel]",
@@ -94,6 +95,7 @@ class Auth(command.CommandPluginSuperclass):
 
         permgroup.install_command(
                 cmdname="revoke",
+                cmdmatch="revoke|remove",
                 argmatch=r"(?P<name>\w+) (?P<perm>[^ ]+)(?: (?P<channel>[^ ]+))?$",
                 callback=self.permission_revoke,
                 cmdusage="<authname> <permission> [channel]",
