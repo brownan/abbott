@@ -6,6 +6,7 @@ from twisted.web.http_headers import Headers
 from twisted.internet import reactor
 from twisted.internet import defer
 from twisted.internet.protocol import Protocol
+from twisted.python import log
 
 from ..command import CommandPluginSuperclass
 
@@ -80,7 +81,7 @@ class IcecastStatus(CommandPluginSuperclass):
                 title=stream['Stream Title'],
                 listeners=stream['Current Listeners'],
                 s='s' if '1'!=stream['Current Listeners'] else '',
-                song=stream['Current Song'],
+                song=stream['Current Song'] or "<no metadata available>",
                 maxtitlelen=maxtitlelen,
                 )
                 )
