@@ -59,7 +59,8 @@ class IcecastStatus(CommandPluginSuperclass):
         iterable over stream dicts with info about each stream
 
         """
-        page = BeautifulSoup(content)
+        page = BeautifulSoup(content,
+                convertEntities=BeautifulSoup.HTML_ENTITIES)
         for div in page.findAll('div', attrs={'class': 'streamheader'}):
             table = div.nextSibling.nextSibling
             yield dict((tr.td.string[:-1], tr.td.nextSibling.nextSibling.string)
@@ -77,14 +78,14 @@ class IcecastStatus(CommandPluginSuperclass):
         count = 0
         for stream in streams:
             count += 1
-            event.reply(u'{title:<{maxtitlelen}} — {song} [{listeners} listener{s}]'.format(
+            replystr = u'{title:<{maxtitlelen}} — {song} [{listeners} listener{s}]'.format(
                 title=stream['Stream Title'],
                 listeners=stream['Current Listeners'],
                 s='s' if '1'!=stream['Current Listeners'] else '',
                 song=stream['Current Song'] or "<no metadata available>",
                 maxtitlelen=maxtitlelen,
                 )
-                )
+            event.reply(replystr)
         if count > 0:
             event.reply("Head to {url} for stream links and to listen in!".format(
                 url=self.config['url']))
