@@ -10,7 +10,7 @@ class Unicoder(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="chr",
-                argmatch=r"(?P<chr>.)$|(?:[uU]\+)?(?P<uni>[\da-fA-F]{1,6)$",
+                argmatch=r"(?P<chr>.)$|(?:[uU]\+)?(?P<uni>[\da-fA-F]{1,6})$",
                 callback=self.lookup_by_chr,
                 helptext="Given a single character, prints out information about it."
                 )
