@@ -26,9 +26,13 @@ class Unicoder(CommandPluginSuperclass):
         except ValueError:
             name = "(no name in database)"
 
-        replytxt = u"U+%04X (%s): %s" % (ord(c), c, name)
-
         cat = unicodedata.category(c)
+
+        replytxt = u"U+%04X" % (ord(c),)
+        if not cat.startswith("C"):
+            replytxt += " (%s)" % c
+        replytxt += ": %s" % name
+
         cats = {
                 "Cc": "Other, Control",
                 "Cf": "Other, Format",
