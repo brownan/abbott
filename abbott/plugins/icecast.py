@@ -63,7 +63,7 @@ class IcecastStatus(CommandPluginSuperclass):
                 convertEntities=BeautifulSoup.HTML_ENTITIES)
         for div in page.findAll('div', attrs={'class': 'streamheader'}):
             table = div.nextSibling.nextSibling
-            yield dict((tr.td.string[:-1], tr.td.nextSibling.nextSibling.string)
+            yield dict((tr.td.string[:-1], (tr.td.nextSibling.nextSibling.string or "")[:])
                     for tr in table.findAll('tr'))
         
 
