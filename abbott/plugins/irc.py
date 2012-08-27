@@ -234,6 +234,8 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
             return d
         self.shutdown_trigger = reactor.addSystemEventTrigger("before", "shutdown", shutdown)
 
+        self.provides_request("irc.getnick")
+
     def stop(self):
         log.msg("IRCBotPlugin stopping...")
         if self.shutdown_trigger is not None:
@@ -304,6 +306,9 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
 
         method = getattr(self.client, methodname)
         method(**kwargs)
+
+    def on_request_irc_getnick(self):
+        return defer.succeed(self.client.nickname)
 
 class IRCController(CommandPluginSuperclass):
     """This plugin provides a few administrative tasks in conjunction with the

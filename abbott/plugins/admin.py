@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 import shlex
 from functools import wraps
+import glob, os.path
 
 from twisted.internet import reactor
 from twisted.python import log
@@ -9,6 +10,7 @@ from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass
 from ..transport import Event
+from ..pluginbase import BotPlugin
 
 def require_channel(func):
     """Wraps command callbacks and requires them to be in response to a channel
@@ -23,15 +25,357 @@ def require_channel(func):
             return func(self, event, match)
     return newfunc
 
+# One of the following Chanserv plugins should be running for the rest of the
+# plugins to work
+
+class Weechat_Chanserv(BotPlugin):
+    """This plugin provides access to chanserv operations through a weechat
+    connector.
+    It listens for these events:
+    * ircadmin.op
+    * ircadmin.deop
+    * ircadmin.voice
+    * ircadmin.devoice
+    * ircadmin.quiet
+    * ircadmin.unquiet
+    each event takes two attributes: channel and nick. Upon reciept of an
+    event, a message will be sent to the chanserv by way of a weechat connector
+    run by the current user.
+
+    """
+    path = "~/.weechat/weechat_fifo_*"
+    network = "freenode"
+
+    def start(self):
+        self.listen_for_event("ircadmin.op")
+        self.listen_for_event("ircadmin.deop")
+        self.listen_for_event("ircadmin.voice")
+        self.listen_for_event("ircadmin.devoice")
+        self.listen_for_event("ircadmin.quiet")
+        self.listen_for_event("ircadmin.unquiet")
+
+    def _send_to_chanserv(self, msg):
+        path = glob.glob(os.path.expanduser(self.path))[0]
+
+        with open(path, 'w') as out:
+            out.write("irc.server.{network} */msg chanserv {msg}\n".format(
+                network=self.network,
+                msg=msg.encode("UTF-8")))
+
+    def received_event(self, event):
+        operation = event.eventtype.split(".")[1]
+        # sanity check
+        if operation not in frozenset(["op","deop","voice","devoice","quiet","unquiet"]):
+            raise ValueError("Invalid event type")
+        self._send_to_chanserv("{operation} {chan} {nick}".format(
+            operation=operation,
+            chan=event.channel,
+            nick=event.nick,
+            ))
+
+class Direct_Chanserv(BotPlugin):
+    """This plugin provides access to chanserv operations. It messages chanserv
+    directly, so the bot must be configured to be logged in and have
+    appropriate access with chanserv for any operations to succeed.
+    It listens for these events:
+    * ircadmin.op
+    * ircadmin.deop
+    * ircadmin.voice
+    * ircadmin.devoice
+    * ircadmin.quiet
+    * ircadmin.unquiet
+    each event takes two attributes: channel and nick. Upon reciept of an
+    event, a message will be sent to the chanserv by way of a weechat connector
+    run by the current user.
+
+    """
+    def start(self):
+        self.listen_for_event("ircadmin.op")
+        self.listen_for_event("ircadmin.deop")
+        self.listen_for_event("ircadmin.voice")
+        self.listen_for_event("ircadmin.devoice")
+        self.listen_for_event("ircadmin.quiet")
+        self.listen_for_event("ircadmin.unquiet")
+
+    def _send_to_chanserv(self, msg):
+        event = Event("irc.do_msg",
+                user="ChanServ",
+                message=msg,
+                )
+        self.transport.send_event(event)
+
+    def received_event(self, event):
+        operation = event.eventtype.split(".")[1]
+        # sanity check
+        if operation not in frozenset(["op","deop","voice","devoice","quiet","unquiet"]):
+            raise ValueError("Invalid event type")
+        self._send_to_chanserv("{operation} {chan} {nick}".format(
+            operation=operation,
+            chan=event.channel,
+            nick=event.nick,
+            ))
+
+class HoldsOp(BotPlugin):
+    """This plugin provides the same interface as the last two ChanServ plugins
+    except it expects the bot to hold op and issue the mode changes itself
+    insteads of asking chanserv. You probably don't want to set an optimeout on
+    any channels if you're using this method.
+
+    """
+    def start(self):
+        self.listen_for_event("ircadmin.op")
+        self.listen_for_event("ircadmin.deop")
+        self.listen_for_event("ircadmin.voice")
+        self.listen_for_event("ircadmin.devoice")
+        self.listen_for_event("ircadmin.quiet")
+        self.listen_for_event("ircadmin.unquiet")
+
+    def received_event(self, event):
+        operation = event.eventtype.split(".")[1]
+        # sanity check
+        if operation not in frozenset(["op","deop","voice","devoice","quiet","unquiet"]):
+            raise ValueError("Invalid event type")
+        event = Event("irc.do_mode",
+                chan=event.channel,
+                set=operation in frozenset(['op','voice','quiet']),
+                modes={'op':    'o',
+                       'deop':  'o',
+                       'voice': 'v',
+                       'devoice':'v',
+                       'quiet': 'q',
+                       'unquiet':'q',
+                       }[operation],
+                user=event.nick,
+                )
+        self.transport.send_event(event)
+
+class OpTimedOut(Exception):
+    pass
+
+class OpSelf(CommandPluginSuperclass):
+    """This plugin provides a request that ops the bot itself. After a timeout,
+    the bot will relinquish OP.
+
+    The request name provided is ircadmin.opself. The one parameter is the
+    channel name.
+
+    """
+    def start(self):
+        super(OpSelf, self).start()
+
+        self.provides_request("ircadmin.opself")
+        self.listen_for_event("irc.on_mode_change")
+        self.listen_for_event("irc.on_join")
+
+        # Maps channel names to a boolean indicating whether we currently hold
+        # op there or not
+        self.have_op = defaultdict(bool)
+
+        # Maps channel names to a set of (deferred, IDelayedCall) tuples where
+        # deferred is to be called when we get op, and the delayed call will
+        # call the errback of the deferred after a timeout has occurred.
+        self.waiting_for_op = defaultdict(set)
+
+        # Maps channel names to timeout calls
+        # (twisted.internet.interfaces.IDelayedCall) to relinquish op, if we
+        # have it
+        self.op_timeout_event = {}
+
+        # Initialize the conifig directive
+        if "optimeout" not in self.config or \
+                not isinstance(self.config['optimeout'], dict):
+            self.config['optimeout'] = {}
+            self.pluginboss.save()
+
+        self.install_command(
+                cmdname="optimeout",
+                argmatch=r"(?P<timeout>-?\d+)( (?P<channel>[^ ]+))?$",
+                callback=self.set_op_timeout,
+                cmdusage="<timeout> [channel]",
+                helptext="Sets how long I'll keep OP before I give it up. -1 for forever",
+                permission="irc.op",
+                )
+
+    def stop(self):
+        # Cancel all pending timers
+        # Let items in waiting_for_op expire on their own
+        
+        for delayedcall in self.op_timeout_event.itervalues():
+            delayedcall.cancel()
+
+    def _set_op_timeout(self, chan):
+        """Sets the op timeout for the given channel. If there is not currently
+        an op timeout, makes one. If there is currently a timeout set, resets
+        the timer.
+
+        """
+        try:
+            timeout = self.config['optimeout'][chan]
+        except KeyError:
+            self.config['optimeout'][chan] = 0
+            self.pluginboss.save()
+            timeout = 0
+
+        delayedcall = self.op_timeout_event.get(chan, None)
+        if timeout < 1:
+            # This channel has no timeout set. Remove one if there is one set.
+            if delayedcall:
+                delayedcall.cancel()
+
+        else:
+            # Set a timeout if not set, or reset the timer otherwise
+            if delayedcall:
+                delayedcall.reset(timeout)
+            else:
+                # Set a callback to relinquish op
+                @defer.inlineCallbacks
+                def relinquish():
+                    mynick = (yield self.transport.issue_request("irc.getnick"))
+                    event = Event("irc.do_mode",
+                            chan=chan,
+                            set=False,
+                            modes="o",
+                            user=mynick,
+                            )
+                    self.transport.send_event(event)
+                    log.msg("Relinquishing op")
+                    # Go ahead and set this to false here, to avoid race
+                    # conditions if a plugin requests op right now after we've
+                    # sent the -o mode but before it's granted.
+                    self.have_op[chan] = False
+                    
+                    del self.op_timeout_event[chan]
+                self.op_timeout_event[chan] = reactor.callLater(timeout, relinquish)
+
+    def on_request_ircadmin_opself(self, channel):
+        if self.have_op[channel]:
+            # Already has op. Reset the timeout timer and return success
+            self._set_op_timeout(channel)
+            return defer.succeed(channel)
+
+        else:
+            # Submit an OP request for ourselves
+            nickdefer = self.transport.issue_request("irc.getnick")
+            def submit(nick):
+                event = Event("ircadmin.op",
+                        channel=channel,
+                        nick=nick,
+                        )
+                self.transport.send_event(event)
+            nickdefer.addCallback(submit)
+
+            # Now create a new deferred object
+            d = defer.Deferred()
+
+            # Create a timeout that will cancel this call
+            def timedout():
+                # call the errback
+                d.errback(OpTimedOut("Op request timed out"))
+                # Remove the deferred from the waiters. timeout is from the
+                # enclosing scope created below
+                self.waiting_for_op[channel].remove((d, timeout))
+            timeout = reactor.callLater(10, timedout)
+
+            self.waiting_for_op[channel].add((d, timeout))
+
+            return d
+
+    @defer.inlineCallbacks
+    def on_event_irc_on_mode_change(self, event):
+        """Called when we observe a mode change. Check to see if it was an op
+        operation on ourselves
+
+        """
+        mynick = (yield self.transport.issue_request("irc.getnick"))
+
+        if (event.set == True and "o" in event.modes and event.args and
+                event.args[0] == mynick):
+            # Op acquired. Make a note of it
+            self.have_op[event.chan] = True
+
+            # Now that we have op, call deferreds on anything that was waiting
+            log.msg("I was given op. Calling op callbacks on %s" % event.chan)
+            for deferred, timeout in self.waiting_for_op.pop(event.chan, set()):
+                timeout.cancel()
+                deferred.callback(event.chan)
+
+            # Now that we have op, set a timeout to relinquish it
+            self._set_op_timeout(event.chan)
+
+        elif (event.set == False and "o" in event.modes and event.args and
+                event.args[0] == mynick):
+            # Op gone
+            self.have_op[event.chan] = False
+            try:
+                timeoutevent = self.op_timeout_event[event.chan]
+            except KeyError:
+                pass
+            else:
+                timeoutevent.cancel()
+                del self.op_timeout_event[event.chan]
+
+    def on_event_irc_on_join(self, event):
+        """If we find ourself joining a channel that we thought we had op, then
+        we actually don't anymore. This happens on disconnects/reconnects or on
+        a manual part/join. Anything that doesn't involve this plugin being
+        restarted.
+
+        """
+        self.have_op[event.channel] = False
+        try:
+            timeoutevent = self.op_timeout_event[event.channel]
+        except KeyError:
+            pass
+        else:
+            timeoutevent.cancel()
+            del self.op_timeout_event[event.channel]
+
+    def set_op_timeout(self, event, match):
+        """Configures the op timeout for a channel. This is the event handler
+        for the command, not to be confused by the other method of a similar
+        name that sets a timeout call to relinquish op. This one just
+        configures the timeout value.
+
+        """
+        gd = match.groupdict()
+        channel = gd['channel']
+        timeout = int(gd['timeout'])
+
+        if not channel:
+            if event.direct:
+                event.reply("on what channel?")
+                return
+            channel = event.channel
+
+        self.config['optimeout'][channel] = timeout
+        self.pluginboss.save()
+
+        timeoutevent = self.op_timeout_event.get(channel, None)
+        if timeout < 1:
+            event.reply("Done. I'll never give up my op")
+            if timeoutevent:
+                timeoutevent.cancel()
+                del self.op_timeout_event[channel]
+        else:
+            event.reply("Done. I'll hold op for %s seconds after I get it" % timeout)
+            if timeoutevent:
+                timeoutevent.reset(timeout)
+            elif self.have_op[channel]:
+                self._set_op_timeout(channel)
+
+
 class IRCAdmin(CommandPluginSuperclass):
-    """A plugin to do various IRC OP-related tasks. The plugin automatically
-    drops OP after it performs an OP task, but can be configured to keep OP.
+    """Provides a command interface to IRC operator tasks. Uses one of the
+    above chanserv plugins as an interface to do the tasks. Since the bot must
+    aquire OP itself for some operations like kick, this plugin relies on the
+    above OpSelf plugin to function.
 
     """
 
     def start(self):
         super(IRCAdmin, self).start()
 
+        # kick command
         self.install_command(
                 cmdname="kick",
                 cmdmatch="kick|KICK",
@@ -42,6 +386,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 callback=self.kick,
                 helptext="Kicks a user from the current channel")
 
+        # Op commands
         self.install_command(
                 cmdname="op",
                 prefix=".",
@@ -61,6 +406,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Takes op from the specified user",
                 )
 
+        # voice commands
         self.install_command(
                 cmdname="voice",
                 cmdmatch="voice|VOICE",
@@ -106,40 +452,117 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Un-quiets a user"
                 )
 
-        ircadmin = self.install_cmdgroup(
-                grpname="ircadmin",
-                permission="irc.op",
-                helptext="IRC adminstrative commands",
-                )
 
-        ircadmin.install_command(
-                cmdname="op with external command",
-                cmdmatch=None, # uses the cmdname literally
-                cmdusage="<command>",
-                argmatch="(?P<command>.*)$",
-                prefix=None,
-                callback=self.set_op_external_command,
-                helptext=None, # will not appear in help text
-                )
-        ircadmin.install_command(
-                cmdname="op with chanserv",
-                cmdmatch=None,
-                cmdusage=None, # no usage
-                argmatch=None, # no arguments
-                prefix=None,
-                callback=self.set_op_with_chanserv,
-                helptext=None,
-                )
+    @require_channel
+    @defer.inlineCallbacks
+    def kick(self, event, match):
+        """A user has issued the kick command. Our job here is to acquire OP
+        for this channel and set a callback to issue a kick event
 
-        ircadmin.install_command(
-                cmdname="optimeout",
-                argmatch=r"(?P<timeout>-?\d+)( (?P<channel>[^ ]+))?$",
-                callback=self.set_op_timeout,
-                cmdusage="<timeout> [channel]",
-                helptext="Sets how long I'll keep OP before I give it up. -1 for forever",
-                )
+        """
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        reason = groupdict.get("reason", None)
+        channel = event.channel
 
-                
+        kickevent = Event("irc.do_kick", channel=channel,
+                user=nick, reason=reason)
+
+        try:
+            yield self.transport.issue_request("ircadmin.opself", channel)
+        except OpTimedOut:
+            event.reply("I could not become OP. Check the error log, configuration, etc.")
+        else:
+            self.transport.send_event(kickevent)
+
+    @require_channel
+    def voice(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
+        channel = event.channel
+
+        voiceevent = Event("ircadmin.voice",
+                channel=channel,
+                nick=nick,
+                )
+        log.msg("Voicing %s in %s" % (nick, channel))
+        self.transport.send_event(voiceevent)
+
+    @require_channel
+    def devoice(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
+        channel = event.channel
+
+        voiceevent = Event("ircadmin.devoice",
+                channel=channel,
+                nick=nick,
+                )
+        log.msg("De-voicing %s in %s" % (nick, channel))
+        self.transport.send_event(voiceevent)
+
+    @require_channel
+    def give_op(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
+        channel = event.channel
+        opevent = Event("ircadmin.op",
+                channel=channel,
+                nick=nick,
+                )
+        log.msg("Opping %s in %s" % (nick, channel))
+        self.transport.send_event(opevent)
+
+    @require_channel
+    def take_op(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        if not nick:
+            nick = event.user.split("!",1)[0]
+        channel = event.channel
+        opevent = Event("ircadmin.deop",
+                channel=channel,
+                nick=nick,
+                )
+        log.msg("De-Opping %s in %s" % (nick, channel))
+        self.transport.send_event(opevent)
+
+    @require_channel
+    def quiet(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        channel = event.channel
+
+        newevent = Event("ircadmin.quiet",
+                channel=channel,
+                nick=nick,
+                )
+        log.msg("quieting %s in %s" % (nick, channel))
+        self.transport.send_event(newevent)
+
+    @require_channel
+    def unquiet(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        channel = event.channel
+
+        newevent = Event("ircadmin.unquiet",
+                channel=channel,
+                nick=nick,
+                )
+        log.msg("unquieting %s in %s" % (nick, channel))
+        self.transport.send_event(newevent)
+
+
+class IRCTopic(CommandPluginSuperclass):
+    def start(self):
+        super(IRCTopic, self).start()
 
         # Topic commands
         topicgroup = self.install_cmdgroup(
@@ -196,383 +619,13 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Reverts the topic to the last known channel topic",
                 )
 
-        topicgroup.install_command(
-                cmdname="requireop",
-                callback=self.topic_requireop,
-                helptext="The bot will acquire OP to change the topic in this channel",
-                permission="irc.op",
-                )
-        topicgroup.install_command(
-                cmdname="norequireop",
-                callback=self.topic_norequireop,
-                helptext="The bot will not try to acquire OP to change the topic in this channel",
-                permission="irc.op",
-                )
-
         # Maps channel names to the last so many topics
         # (The top most item on the stack should be the current topic. But the
         # handlers should handle the case that the stack is empty!)
         self.topic_stack = defaultdict(lambda: deque(maxlen=10))
         self.listen_for_event("irc.on_topic_updated")
-        if "requiresop" not in self.config:
-            self.config['requiresop'] = []
-            self.pluginboss.save()
         # set of deferreds waiting for the current topic response in a channel
         self.topic_waiters = defaultdict(set)
-
-        # Maps channel names to a set of deferred objects indicating someone is
-        # waiting for op on a channel
-        self.waiting_for_op = defaultdict(set)
-
-        if "opmethod" not in self.config:
-            self.config['opmethod'] = None
-            self.pluginboss.save()
-
-        # If we currently have OP, there may be a reactor timeout to relinquish
-        # it. This instance var maps channels to the IDelayedCall object for
-        # the timeout, which should be reset if we perform any other OP calls
-        self.op_timeout_event = {}
-
-        # This var holds whether we currently have OP or not in each channel
-        self.have_op = defaultdict(bool)
-
-        if "optimeout" not in self.config or \
-                not isinstance(self.config['optimeout'], dict):
-            self.config['optimeout'] = {}
-            self.pluginboss.save()
-
-        self.listen_for_event("irc.on_mode_change")
-        self.listen_for_event("irc.on_join")
-
-    def on_event_irc_on_mode_change(self, event):
-        """A mode has changed. If we now have op, call all the callbacks in
-        self.waiting_for_op
-
-        """
-        mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
-
-        if (event.set == True and "o" in event.modes and event.args and
-                event.args[0] == mynick):
-            # Op acquired. Make a note of it
-            self.have_op[event.chan] = True
-
-            # Now that we have op, call deferreds on anything that was waiting
-            log.msg("I was given op. Calling op callbacks on %s" % event.chan)
-            for deferred in self.waiting_for_op.pop(event.chan, set()):
-                deferred.callback(None)
-
-            # Now that we have op, set a timeout to relinquish it
-            timeout = self._get_op_timeout(event.chan)
-            if timeout >= 0:
-                delayedcall = reactor.callLater(
-                        timeout,
-                        self._relinquish_op,
-                        event.chan)
-                self.op_timeout_event[event.chan] = delayedcall
-
-        elif (event.set == False and "o" in event.modes and event.args and
-                event.args[0] == mynick):
-            # Op gone
-            self.have_op[event.chan] = False
-            try:
-                timeoutevent = self.op_timeout_event[event.chan]
-            except KeyError:
-                pass
-            else:
-                timeoutevent.cancel()
-                del self.op_timeout_event[event.chan]
-
-    def on_event_irc_on_join(self, event):
-        """If we find ourself joining a channel that we thought we had op, then
-        we actually don't anymore. This happens on disconnects/reconnects or on
-        a manual part/join. Anything that doesn't involve this plugin being
-        restarted.
-
-        """
-        self.have_op[event.channel] = False
-        try:
-            timeoutevent = self.op_timeout_event[event.channel]
-        except KeyError:
-            pass
-        else:
-            timeoutevent.cancel()
-            del self.op_timeout_event[event.channel]
-
-    def _get_op_timeout(self, chan):
-        """Returns the op timeout for the given channel. If one isn't defined
-        in the config, write out the default and save it.
-
-        """
-        try:
-            return self.config['optimeout'][chan]
-        except KeyError:
-            self.config['optimeout'][chan] = 30
-            self.pluginboss.save()
-            return 30
-
-    def _relinquish_op(self, chan):
-        """This is called by a reactor.callLater() call to relinquish op on the
-        given channel
-
-        """
-        self.have_op[chan] = False
-        del self.op_timeout_event[chan]
-
-        mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
-        deop = Event("irc.do_mode", 
-                chan=chan,
-                set=False,
-                modes="o",
-                user=mynick,
-                )
-        log.msg("Relinquishing op")
-        self.transport.send_event(deop)
-
-    def _send_event_as_op(self, channel, event, reply):
-        """Gets op on the specified channel, then sends the given event
-        
-        The given reply callable is used if we need to reply to the channel (on
-        failure)
-        
-        """
-        deferred = self._get_op(channel)
-        def fail(reason):
-            log.err("failed because we failed to get OP")
-            reply(reason.getErrorMessage())
-        def success(_):
-            log.msg("OP succeeded, proceeding to issue event %s" % event.__dict__)
-            self.transport.send_event(event)
-        deferred.addCallbacks(success, fail)
-
-    def _get_op(self, channel):
-        """Returns a deferred object that's called when OP is acquired.
-        
-        the error callback is called if op is not acquired in a timely manner
-        
-        """
-        if self.have_op[channel]:
-            # We already have op. Reset the timer if it exists, and return
-            # succeess
-            timeout = self._get_op_timeout(channel)
-            if timeout >= 0:
-                try:
-                    self.op_timeout_event[channel].reset(timeout)
-                except KeyError:
-                    pass
-            return defer.succeed(None)
-
-        hasop = defer.Deferred()
-
-        if self.waiting_for_op[channel]:
-            # Already had some waiters, that must mean op is already pending
-            log.msg("Was going to submit an OP requst, but there's already one pending")
-            self.waiting_for_op[channel].add(hasop)
-            return hasop
-
-        if self.config['opmethod'] == "external":
-            mynick = self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].client.nickname
-
-            cmd = self.config['opcommand']
-            # Break the command up into parts. This is done before the %c and
-            # %n replacement to avoid any injection attacks
-            cmd_parts = shlex.split(cmd.encode("UTF-8"))
-            # Now do the replacements
-            cmd_parts = [x.replace("%c", channel.encode("UTF-8")) for x in cmd_parts]
-            cmd_parts = [x.replace("%n", mynick.encode("UTF-8"))  for x in cmd_parts]
-            log.msg("Executing %s" % cmd)
-            log.msg("Final arguments are %s" % cmd_parts)
-            proc_defer = getProcessOutput("/usr/bin/env", cmd_parts, errortoo=True)
-            def finished(output):
-                if output.strip():
-                    log.msg("Process finished. Returned %s" % output)
-            proc_defer.addCallback(finished)
-
-        elif self.config['opmethod'] == "chanserv":
-            return defer.fail("chanserv mode not supported just yet")
-        else:
-            return defer.fail("No suitable methods to acquire OP are defined!")
-
-        self.waiting_for_op[channel].add(hasop)
-        reactor.callLater(10, self._timed_out, channel)
-
-        return hasop
-
-    def _timed_out(self, channel):
-        """The request to gain OP in the given channel has timed out. Call the
-        error methods on any deferreds waiting for it
-
-        """
-        deferreds = self.waiting_for_op.pop(channel, set())
-        for deferred in deferreds:
-            deferred.errback("OP request timed out. Check your config and the error log.")
-
-    ###
-    ### Command callbacks for OP related tasks
-    ###
-
-    def set_op_timeout(self, event, match):
-        gd = match.groupdict()
-        channel = gd['channel']
-        timeout = int(gd['timeout'])
-
-        if not channel:
-            if event.direct:
-                event.reply("on what channel?")
-                return
-            channel = event.channel
-
-        self.config['optimeout'][channel] = timeout
-        self.pluginboss.save()
-
-        timeoutevent = self.op_timeout_event.get(channel, None)
-        if timeout < 0:
-            event.reply("Done. I'll never give up my op")
-            if timeoutevent:
-                timeoutevent.cancel()
-                del self.op_timeout_event[channel]
-        else:
-            event.reply("Done. I'll hold op for %s seconds after I get it" % timeout)
-            if timeoutevent:
-                timeoutevent.reset(timeout)
-            elif self.hasop[channel]:
-                # Set a new timeout event
-                timeout = self._get_op_timeout(channel)
-                if timeout >= 0:
-                    delayedcall = reactor.callLater(
-                            timeout,
-                            self._relinquish_op,
-                            channel)
-                    self.op_timeout_event[channel] = delayedcall
-
-
-    @require_channel
-    def kick(self, event, match):
-        """A user has issued the kick command. Our job here is to acquire OP
-        for this channel and set a callback to issue a kick event
-
-        """
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        reason = groupdict.get("reason", None)
-        channel = event.channel
-
-        kickevent = Event("irc.do_kick", channel=channel,
-                user=nick, reason=reason)
-
-        self._send_event_as_op(channel, kickevent, event.reply)
-
-    @require_channel
-    def voice(self, event, match):
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
-        channel = event.channel
-
-        voiceevent = Event("irc.do_mode",
-                chan=channel,
-                set=True,
-                modes="v",
-                user=nick,
-                )
-        log.msg("Voicing %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, voiceevent, event.reply)
-    @require_channel
-    def devoice(self, event, match):
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
-        channel = event.channel
-
-        voiceevent = Event("irc.do_mode",
-                chan=channel,
-                set=False,
-                modes="v",
-                user=nick,
-                )
-        log.msg("De-voicing %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, voiceevent, event.reply)
-
-    @require_channel
-    def give_op(self, event, match):
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
-        channel = event.channel
-        opevent = Event("irc.do_mode",
-                chan=channel,
-                set=True,
-                modes="o",
-                user=nick,
-                )
-        log.msg("Opping %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, opevent, event.reply)
-    @require_channel
-    def take_op(self, event, match):
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
-        channel = event.channel
-        opevent = Event("irc.do_mode",
-                chan=channel,
-                set=False,
-                modes="o",
-                user=nick,
-                )
-        log.msg("De-Opping %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, opevent, event.reply)
-
-    @require_channel
-    def quiet(self, event, match):
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        channel = event.channel
-
-        newevent = Event("irc.do_mode",
-                chan=channel,
-                set=True,
-                modes="q",
-                user=nick,
-                )
-        log.msg("quieting %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, newevent, event.reply)
-
-    @require_channel
-    def unquiet(self, event, match):
-        groupdict = match.groupdict()
-        nick = groupdict['nick']
-        channel = event.channel
-
-        newevent = Event("irc.do_mode",
-                chan=channel,
-                set=False,
-                modes="q",
-                user=nick,
-                )
-        log.msg("unquieting %s in %s" % (nick, channel))
-        self._send_event_as_op(channel, newevent, event.reply)
-
-    def set_op_external_command(self, event, match):
-        """Configure the plugin to use an external command to acquire op.
-        
-        The command will be executed by the shell. The string %c will be
-        replaced by the channel, and %n is the nick to op
-        
-        """
-        self.config['opmethod'] = 'external'
-        self.config['opcommand'] = match.groupdict()['command']
-        self.pluginboss.save()
-        event.reply("OP method changed. Op command saved")
-        
-    def set_op_with_chanserv(self, event, match):
-        """Configure the plugin to use chanserv to acquire op"""
-        self.config['opmethod'] = 'chanserv'
-        self.pluginboss.save()
-        event.reply("Op method changed")
-
 
     ### Topic methods
     def on_event_irc_on_topic_updated(self, event):
@@ -640,12 +693,7 @@ class IRCAdmin(CommandPluginSuperclass):
         def callback(currenttopic):
             currenttopic += " | " + match.groupdict()['text']
             topicevent = self._get_change_topic_event(channel, currenttopic)
-            if channel in self.config['requiresop']:
-                self._send_event_as_op(channel,
-                        topicevent,
-                        event.reply)
-            else:
-                self.transport.send_event(topicevent)
+            self.transport.send_event(topicevent)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -664,12 +712,7 @@ class IRCAdmin(CommandPluginSuperclass):
             newtopic = " | ".join(topic_parts)
             topicevent = self._get_change_topic_event(channel, newtopic)
 
-            if channel in self.config['requiresop']:
-                self._send_event_as_op(channel,
-                        topicevent,
-                        event.reply)
-            else:
-                self.transport.send_event(topicevent)
+            self.transport.send_event(topicevent)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -693,12 +736,7 @@ class IRCAdmin(CommandPluginSuperclass):
             newtopic = " | ".join(topic_parts)
             topicevent = self._get_change_topic_event(channel, newtopic)
 
-            if channel in self.config['requiresop']:
-                self._send_event_as_op(channel,
-                        topicevent,
-                        event.reply)
-            else:
-                self.transport.send_event(topicevent)
+            self.transport.send_event(topicevent)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -720,12 +758,7 @@ class IRCAdmin(CommandPluginSuperclass):
             newtopic = " | ".join(topic_parts)
             topicevent = self._get_change_topic_event(channel, newtopic)
 
-            if channel in self.config['requiresop']:
-                self._send_event_as_op(channel,
-                        topicevent,
-                        event.reply)
-            else:
-                self.transport.send_event(topicevent)
+            self.transport.send_event(topicevent)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -744,12 +777,7 @@ class IRCAdmin(CommandPluginSuperclass):
             newtopic = " | ".join(topic_parts)
             topicevent = self._get_change_topic_event(channel, newtopic)
 
-            if channel in self.config['requiresop']:
-                self._send_event_as_op(channel,
-                        topicevent,
-                        event.reply)
-            else:
-                self.transport.send_event(topicevent)
+            self.transport.send_event(topicevent)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -768,34 +796,6 @@ class IRCAdmin(CommandPluginSuperclass):
 
         topicevent = self._get_change_topic_event(channel, newtopic)
 
-        if channel in self.config['requiresop']:
-            self._send_event_as_op(channel,
-                    topicevent,
-                    event.reply)
-        else:
-            self.transport.send_event(topicevent)
+        self.transport.send_event(topicevent)
 
 
-    @require_channel
-    def topic_requireop(self, event, match):
-        channel = event.channel
-        requires_op = self.config["requiresop"]
-        if channel not in requires_op:
-            requires_op.append(channel)
-
-        self.config['requiresop'] = requires_op
-        self.pluginboss.save()
-        event.reply("I will now try to acquire OP before changing the topic in this channel")
-
-
-
-    @require_channel
-    def topic_norequireop(self, event, match):
-        channel = event.channel
-        requires_op = self.config["requiresop"]
-        if channel in requires_op:
-            requires_op.remove(channel)
-
-        self.config['requiresop'] = requires_op
-        self.pluginboss.save()
-        event.reply("I will no longer try to acquire OP before changing the topic in this channel")

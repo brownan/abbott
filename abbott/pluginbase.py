@@ -1,6 +1,8 @@
 from __future__ import print_function
 import json
 
+from twisted.internet import defer
+
 class PluginBoss(object):
     """Handles the loading and unloading of plugins and the reading 
     of config files and storage of configuration.
@@ -194,9 +196,24 @@ class BotPlugin(object):
             return method(event)
         return event
 
+    def incoming_request(self, name, *args, **kwargs):
+        """A request has been issued to this plugin. Return a deferred.
+
+        """
+        method = getattr(self, "on_request_%s" % name.replace(".","_"), None)
+        if method:
+            toret = method(*args, **kwargs)
+        else:
+            toret = defer.fail(NotImplementedError("The plugin does not provide that request method"))
+        return toret
+
     ### Convenience methods for use by the plugin to install event listeners
     def install_middleware(self, matchstr):
         self.transport.install_middleware(matchstr, self)
 
     def listen_for_event(self, matchstr):
         self.transport.listen_for_event(matchstr, self)
+
+    def provides_request(self, name):
+        self.transport.provides_request(name, self)
+

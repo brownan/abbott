@@ -2,6 +2,9 @@ import re
 from collections import defaultdict
 from itertools import chain
 
+from twisted.internet import defer
+from twisted.python import log
+
 """
 About the Abbott event system:
 
@@ -30,10 +33,20 @@ information into the event for use by other plugins. It's perfectly fine to
 insert callback functions as attributes on the event too, not just values. (See
 the auth.Auth plugin)
 
-Ideas for the future: a way for plugins to interact directly with each other to
-request information, returning Deferred objects. Useful if one plugin wants to
-ask information from another plugin, but another plugin may not know
-immedaitely. Maybe some kind of "provides" interface.
+Aside from events, there is another mechanism meant for inter-plugin
+communication. One plugin can send a "request" that another plugin perfrom some
+action and return some result. A plugin must register that it provides a
+particular request by calling its .transport.provides_request(request_name,
+self) method. The request names are of a separate namespace as events, and
+globbing is not allowed; each request must be specifically declared. When a
+request comes in, the plugin's incoming_request() method is called. The first
+argument is the request name.  The rest are *args, **kwargs. It is expected to
+return a deferred object. To issue a request, call transport.send_request()
+with the request name and the appropriate arguments.
+
+Other notes about requests: only one plugin may provide a request handler for a
+particular request name. If more than one handler tries to provide a particular
+request, the behavior is undefined.
 
 """
 
@@ -47,6 +60,7 @@ class Transport(object):
         # maps event names to sets of objects
         self._middleware_listeners = defaultdict(set)
         self._event_listeners = defaultdict(set)
+        self._request_listeners = {}
 
     def send_event(self, event):
         # Note: iterating over the listener dictionaries and sets are done with
@@ -76,10 +90,40 @@ class Transport(object):
     def listen_for_event(self, matchstr, obj_to_notify):
         self._event_listeners[matchstr].add(obj_to_notify)
 
+
+    ### Request Interface
+
+    def issue_request(self, name, *args, **kwargs):
+        """Plugins: call this to send a request to some other plugin. Returns a deferred"""
+        try:
+            obj = self._request_listeners[name]
+        except KeyError:
+           return defer.fail(NotImplementedError("Request name %r is not implemented"%(name,)))
+
+        toret = obj.incoming_request(name, *args, **kwargs)
+
+        if not isinstance(toret, defer.Deferred):
+            log.err("Requets method %s provided by %s did not return a deferred" % (name, obj))
+            toret = defer.fail(TypeError("Request Method did not return a deferred"))
+
+        return toret
+
+    def provides_request(self, name, obj_to_notify):
+        """Plugins: call this in your start() method to receive requests for this reqeust name
+
+        """
+        self._request_listeners[name] = obj_to_notify
+
+
+    ### Called on plugin unloading
+
     def unhook_plugin(self, plugin):
         for obj_set in chain(self._middleware_listeners.itervalues(),
                 self._event_listeners.itervalues()):
             obj_set.discard(plugin)
+        for reqname, obj in self._request_listeners.items():
+            if obj is plugin:
+                del self._request_listeners[reqname]
 
 
 class Event(object):
