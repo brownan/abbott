@@ -2,6 +2,7 @@
 import time
 import random
 import re
+from collections import defaultdict
 
 from twisted.internet import reactor
 from twisted.python import log
@@ -144,3 +145,48 @@ class Reverse(CommandPluginSuperclass):
         # needs to go here to avoid loopbacks
         super(Reverse, self).on_event_irc_on_privmsg(event)
 
+class Sneeze(BotPlugin):
+
+    def start(self):
+        super(Sneeze, self).start()
+
+        self.timers = {}
+
+        self.listen_for_event("irc.on_privmsg")
+
+    def stop(self):
+        super(Sneeze, self).stop()
+
+        for t in self.timers.itervalues():
+            t.cancel()
+
+    def on_event_irc_on_privmsg(self, event):
+        if event.channel in self.config["channels"]:
+
+            # An exponential distribution with a minimum of 1 and a
+            # mean of x+1
+            x = 3
+            timeout = random.expovariate(1.0/x)+1
+            # in seconds
+            timeout = timeout * 60 * 60
+            if event.channel in self.timers:
+                self.timers[event.channel].reset(timeout)
+            else:
+                timer = reactor.callLater(timeout,
+                        self.sneeze,
+                        event.channel)
+                self.timers[event.channel] = timer
+
+    def sneeze(self, channel):
+        log.msg("Sneeze timer erupted for %s" % channel)
+        del self.timers[channel]
+
+        if random.randint(1,5) == 5:
+            message = random.choice(self.config["messages"])
+            self.transport.send_event(
+                    Event("irc.do_msg",
+                        user=channel,
+                        message=message,
+                        )
+                    )
+                        
