@@ -68,7 +68,7 @@ I'll create a new one for you now""")
                         # Good default set of plugins to bootstrap functionality
                         'irc.IRCBotPlugin',
                         'irc.IRCController',
-                        'irc.ReplyInserter',
+                        'ircutil.ReplyInserter',
                         'auth.Auth',
                         'plugincontroller.PluginController',
                         ],

@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 
 from twisted.internet import reactor
@@ -94,7 +95,6 @@ class IRCWhois(CommandPluginSuperclass):
                 callback.errback(NoSuchNick(params[2]))
 
         else:
-            log.msg("Got whois item %s: %s" % (command, params[1:]))
             self.currentinfo[command] = params[1:]
 
     def on_request_irc_whois(self, nick):
@@ -133,3 +133,93 @@ class IRCWhois(CommandPluginSuperclass):
         for command, params in info.iteritems():
             event.reply("%s: %s" % (command, params))
         
+class ReplyInserter(CommandPluginSuperclass):
+    """This plugin's function is to insert a reply() function to each incoming
+    irc.on_privmsg event. It is required for a lot of functionality, including
+    all Command-derived plugins, so you should probably have this activated!
+
+    """
+    def start(self):
+        super(ReplyInserter, self).start()
+
+        self.install_middleware("irc.on_privmsg")
+
+        self.install_command(
+                cmdname="echo",
+                callback=lambda event,match: event.reply(match.groupdict()['msg']),
+                cmdusage="<text to echo>",
+                argmatch="(?P<msg>.+)$",
+                helptext="Echos text back to where it came",
+                )
+
+        self.install_command(
+                cmdname="echoto",
+                callback=lambda event,match: self.transport.send_event(
+                    Event("irc.do_msg",
+                        user=match.groupdict()['channel'],
+                        message=match.groupdict()['msg'],
+                    )),
+                permission="irc.echoto",
+                cmdusage="<channel> <text to echo>",
+                argmatch="(?P<channel>[^ ]+) (?P<msg>.+)$",
+                helptext="Echos text to the given channel",
+                )
+
+
+    def on_middleware_irc_on_privmsg(self, event):
+
+        # If the message ends in this regular expression, redirect any replies
+        # at the named user
+        match = re.match(r"^(?P<msg>.*)(?:\s+@\s*(?P<target>[^ ]+))\s*$", event.message)
+        if match:
+            gd = match.groupdict()
+            newtarget = gd['target']
+            event.message = gd['msg']
+        else:
+            newtarget = None
+
+        def reply(msg, userprefix=True, notice=False, direct=False):
+            """This function is inserted to every irc.on_privmsg event that's
+            sent. It sends a reply directed at the user that sent the message.
+
+            if userprefix is True (the default), the message is prefixed by
+            "user: ", so that the user is notified and the reply is
+            highlighted. (This is skipped for direct replies)
+
+            If notice is True, the reply is sent as an irc NOTICE command
+            instead of a PRIVMSG
+
+            If direct is True, the message will be sent direct to the user
+            instead of through the channel where this message originated. (This
+            obviously has no effect if the incoming message was a direct
+            message; the reply will always be direct)
+
+            """
+            if notice:
+                eventname = "irc.do_notice"
+            else:
+                eventname = "irc.do_msg"
+
+            nick = event.user.split("!",1)[0]
+            
+            # In addition to if it was explicitly requested, send the response
+            # "direct" if the incoming response was sent direct to us
+            direct = direct or event.direct
+
+            # Decide whether to prefix the name to the message: if requested,
+            # but not if the message will be sent back directly
+            if userprefix and not direct:
+                msg = "%s: %s" % (newtarget or nick, msg)
+
+            # Decide where to send it back: send it direct if it was sent
+            # incoming direct (or if direct was requested). Otherwise, send it
+            # to the channel
+            if direct:
+                outchannel = nick
+            else:
+                outchannel = event.channel
+
+            newevent = Event(eventname, user=outchannel, message=msg)
+            self.transport.send_event(newevent)
+        event.reply = reply
+        return event
