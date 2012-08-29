@@ -47,6 +47,13 @@ class PyEval(CommandPluginSuperclass):
         finally:
             signal.alarm(0)
 
+        if isinstance(replystr, str):
+            # Check to see if it's valid ascii
+            try:
+                replystr = replystr.decode("ASCII")
+            except UnicodeDecodeError:
+                replystr = repr(replystr)
+
         lines = replystr.split("\n")
         lines = [x.strip() for x in lines]
         lines = [x for x in lines if x]
