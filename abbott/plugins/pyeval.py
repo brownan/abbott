@@ -150,8 +150,7 @@ class SafetyChecker(ast.NodeVisitor):
     def visit(self, node):
         if isinstance(node, ast.Attribute):
             # Disallow all __*__ attributes
-            if node.attr.startswith("__") and \
-                    node.attr.endswith("__"):
+            if node.attr.startswith("_"):
                 raise UnsafeCode("Attribute %s is not allowed" % node.attr)
         
         # recurse to sub-nodes
@@ -177,8 +176,6 @@ def safeeval(evalstr):
             }
 
     # Now add some safe global functions back into the scope
-    for name in ALLOWED_GLOBALS:
-        scope["__builtins__"][name] = getattr(__builtin__, name)
     scope["__builtins__"].update(ALLOWED_GLOBALS)
     scope.update(ADDITIONAL_GLOBALS)
     
