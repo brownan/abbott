@@ -266,7 +266,7 @@ class Mueval(CommandPluginSuperclass):
         for line in lines:
             maxlen = 200
             if len(line) >= maxlen:
-                line = line[:maxlen-3] + "..."
+                line = line[:maxlen-3] + u"…"
             event.reply(line)
 
 class URLShortener(BotPlugin):
