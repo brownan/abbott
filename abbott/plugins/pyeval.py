@@ -28,7 +28,10 @@ class PyEval(CommandPluginSuperclass):
         signal.signal(signal.SIGALRM, alarmhandler)
         signal.alarm(1)
         try:
-            replystr = str(safeeval(evalstr))
+            try:
+                replyobj = safeeval(evalstr)
+            finally:
+                signal.alarm(0)
         except UnsafeCode, e:
             replystr = e.args[0]
         except Exception, e:
@@ -36,15 +39,18 @@ class PyEval(CommandPluginSuperclass):
                 replystr = "%s: %s" % (type(e).__name__, e.args[0])
             else:
                 replystr = type(e).__name__
-        finally:
-            signal.alarm(0)
+        else:
+            if isinstance(replyobj, str):
+                # Check to see if it's valid ascii
+                try:
+                    replystr = replyobj.decode("ASCII")
+                except UnicodeDecodeError:
+                    replystr = repr(replyobj)
+            elif isinstance(replyobj, unicode):
+                replystr = replyobj
+            else:
+                replystr = unicode(str(replyobj))
 
-        if isinstance(replystr, str):
-            # Check to see if it's valid ascii
-            try:
-                replystr = replystr.decode("ASCII")
-            except UnicodeDecodeError:
-                replystr = repr(replystr)
 
         lines = replystr.split("\n")
         lines = [x.strip() for x in lines]
@@ -128,6 +134,9 @@ ALLOWED_BUILTINS = {
     'apply': apply,
     'buffer': buffer,
     'coerce': coerce,
+    'True': True,
+    'False': False,
+    'None': None,
     }
 
 # And some modules to import into our scope
