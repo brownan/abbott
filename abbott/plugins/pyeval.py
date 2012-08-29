@@ -1,15 +1,9 @@
 # encoding: UTF-8
 import ast
-import traceback
-import __builtin__
 import signal
 
-from twisted.internet import defer, reactor
-from twisted.internet.utils import getProcessOutput
 from twisted.python import log
-from twisted.internet.protocol import ProcessProtocol
 
-from ..pluginbase import BotPlugin
 from ..command import CommandPluginSuperclass
 
 class TimeoutError(Exception): pass
@@ -38,8 +32,6 @@ class PyEval(CommandPluginSuperclass):
         except UnsafeCode, e:
             replystr = e.args[0]
         except Exception, e:
-            import traceback
-            traceback.print_exc()
             if e.args:
                 replystr = "%s: %s" % (type(e).__name__, e.args[0])
             else:
