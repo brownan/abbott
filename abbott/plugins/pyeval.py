@@ -1,8 +1,10 @@
 # encoding: UTF-8
 import ast
 import signal
+import traceback
 
 from twisted.python import log
+from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass
 
@@ -22,23 +24,23 @@ class PyEval(CommandPluginSuperclass):
                 callback=self.invoke_pyeval,
                 )
 
+    @defer.inlineCallbacks
     def invoke_pyeval(self, event, match):
         evalstr = match.groupdict()['expression']
 
+        safe = (yield event.has_permission("pyeval.trusted", event.channel))
+
         signal.signal(signal.SIGALRM, alarmhandler)
-        signal.alarm(1)
+        signal.alarm(1 if not safe else 10)
         try:
             try:
-                replyobj = safeeval(evalstr)
+                replyobj = safeeval(evalstr, safe)
             finally:
                 signal.alarm(0)
         except UnsafeCode, e:
             replystr = e.args[0]
         except Exception, e:
-            if e.args:
-                replystr = "%s: %s" % (type(e).__name__, e.args[0])
-            else:
-                replystr = type(e).__name__
+            replystr = traceback.format_exception_only(type(e),e)[-1].strip()
         else:
             if isinstance(replyobj, str):
                 # Check to see if it's valid ascii
@@ -163,27 +165,31 @@ class SafetyChecker(ast.NodeVisitor):
         # recurse to sub-nodes
         self.generic_visit(node)
 
-def safeeval(evalstr):
+def safeeval(evalstr, safe=False):
+    """Eval an expression and return the result. If safe is True, relaxes the
+    restrictions.
+
+    """
 
     # Parse the code into an abstract syntax tree
     expr = ast.parse(evalstr, mode='eval')
 
     # Check that any attribute access is safe
-    checker = SafetyChecker()
-    checker.visit(expr)
+    if not safe:
+        checker = SafetyChecker()
+        checker.visit(expr)
 
     # Passed the tests? compile
     codeobj = compile(expr, "<unknown>", 'eval')
 
-    # Prepare a restricted set of local and global variables for the execution's
-    # scope
-    scope = {
-            # important so it doesn't inherit the global __builtins__
-            "__builtins__": {}, 
-            }
+    # Make sure to override the __builtins__ item, otherwise the namespace will
+    # inherit the default __builtins__ and get everything. Thus, not putting
+    # this in will let the environment have the full default set of builtins.
+    scope = {}
+    if not safe:
+        scope["__builtins__"] = dict(ALLOWED_BUILTINS)
 
-    # Now add some safe global functions back into the scope
-    scope["__builtins__"].update(ALLOWED_BUILTINS)
+    # And a few handy, safe modules
     scope.update(ADDITIONAL_GLOBALS)
     
     return eval(codeobj, scope, scope)
