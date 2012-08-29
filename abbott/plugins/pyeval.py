@@ -60,16 +60,15 @@ class PyEval(CommandPluginSuperclass):
 
 ### The rest of this file is the "safe" eval mechanism
 
-# Set of names to import from the __builtins__ module into the scope of the
-# executed code. This is a whitelist, so the code's scope will not get any
-# other builtins
+# Set of builtins to add into the scope of the executed code. This is a
+# whitelist, so the code's scope will not get any other builtins
 #
 # Notable items not included: open, __import__, file, eval, execfile, input
 #
 # getattr and setattr are also not allowed, as they would allow access to
 # restricted properties of various objects. There's probably still some way to
 # get by this though.
-ALLOWED_GLOBALS = {
+ALLOWED_BUILTINS = {
     'abs': abs,
     'all': all,
     'any': any,
@@ -131,6 +130,7 @@ ALLOWED_GLOBALS = {
     'coerce': coerce,
     }
 
+# And some modules to import into our scope
 ADDITIONAL_GLOBALS = dict((x,__import__(x)) for x in [
     "math",
     "cmath",
@@ -148,7 +148,6 @@ class UnsafeCode(Exception):
 class SafetyChecker(ast.NodeVisitor):
     def visit(self, node):
         if isinstance(node, ast.Attribute):
-            # Disallow all __*__ attributes
             if node.attr.startswith("_"):
                 raise UnsafeCode("Attribute %s is not allowed" % node.attr)
         
@@ -175,7 +174,7 @@ def safeeval(evalstr):
             }
 
     # Now add some safe global functions back into the scope
-    scope["__builtins__"].update(ALLOWED_GLOBALS)
+    scope["__builtins__"].update(ALLOWED_BUILTINS)
     scope.update(ADDITIONAL_GLOBALS)
     
     return eval(codeobj, scope, scope)
