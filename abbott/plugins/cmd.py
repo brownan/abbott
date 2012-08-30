@@ -54,11 +54,13 @@ class RunCommand(CommandPluginSuperclass):
                 lambda s: event.reply(s, userprefix=False),
                 )
 
+        cmd = match.groupdict()['cmd']
+        log.msg("Running shell command '%s'" % cmd)
         reactor.spawnProcess(
                 self.currentprocess,
                 "/bin/bash",
                 ["/bin/bash", "-c",
-                    match.groupdict()['cmd'],
+                    cmd.encode("UTF-8"),
                 ]
                 )
 

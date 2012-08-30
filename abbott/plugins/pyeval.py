@@ -30,6 +30,11 @@ class PyEval(CommandPluginSuperclass):
 
         safe = (yield event.has_permission("pyeval.trusted", event.channel))
 
+        if safe:
+            log.msg("PyEvaling trusted expr %r" % evalstr)
+        else:
+            log.msg("PyEvaling untrusted expr %r" % evalstr)
+
         signal.signal(signal.SIGALRM, alarmhandler)
         signal.alarm(1 if not safe else 10)
         try:
