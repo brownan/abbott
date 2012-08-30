@@ -1,16 +1,13 @@
 from collections import defaultdict, deque
-import shlex
 from functools import wraps
 import glob, os.path
 
 from twisted.internet import reactor
 from twisted.python import log
-from twisted.internet.utils import getProcessOutput
 from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass
 from ..transport import Event
-from ..pluginbase import BotPlugin
 
 def require_channel(func):
     """Wraps command callbacks and requires them to be in response to a channel
@@ -33,16 +30,19 @@ class NoOpMethod(OpError):
     pass
 
 class IRCOpProvider(CommandPluginSuperclass):
-    """This plugin provides three things: it responts to the events
+    """This plugin provides three things: it provides the requests
     ircadmin.op and ircadmin.deop to grant op and deop requests for arbitrary
-    nicks on arbitrary channels, and one request: ircadmin.opself, which
+    nicks on arbitrary channels, and the request ircadmin.opself, which
     returns a deferred that fires when the bot gains or has OP.
     
     This plugin can be configured to grant op in one of two ways, on a
     per-channel basis. It can also be configured to hold op for a specified
     amount of time and then relinquish it.
 
-    The ircadmin.opself request may errback with an OpError exception.
+    The ircadmin.opself request may errback with an OpError exception. The op
+    and deop requests may error with a NoOpMethod exception if op is reqeusted
+    but no method of gaining op is defined (and we are not op so it can't be
+    done directly)
 
     """
     def start(self):
