@@ -1,12 +1,9 @@
 # encoding: UTF-8
-from StringIO import StringIO
 
-from twisted.internet import defer, reactor
-from twisted.internet.utils import getProcessOutput
+from twisted.internet import reactor
 from twisted.python import log
 from twisted.internet.protocol import ProcessProtocol
 
-from ..pluginbase import BotPlugin
 from ..command import CommandPluginSuperclass
 
 class ContinuousProcess(ProcessProtocol):
