@@ -142,10 +142,10 @@ class Auth(command.CommandPluginSuperclass):
         # Put a few default items in the config if they don't exist
         if "perms" not in self.config:
             self.config['perms'] = {}
-            self.pluginboss.save()
+            self.config.save()
         if "defaultperms" not in self.config:
             self.config['defaultperms'] = []
-            self.pluginboss.save()
+            self.config.save()
 
         # Compatibility check for a new schema. Use items() since we're going
         # to mutate the dict in the loop
@@ -384,7 +384,7 @@ class Auth(command.CommandPluginSuperclass):
     def _save(self):
         # Make a copy... don't store the defaultdict (probably wouldn't matter though)
         self.config['perms'] = dict(self.permissions)
-        self.pluginboss.save()
+        self.config.save()
 
     ### Reload event
     def reload(self):
@@ -491,7 +491,7 @@ class Auth(command.CommandPluginSuperclass):
         channel = groupdict.get("channel", None)
         if [channel, permission] not in self.config['defaultperms']:
             self.config['defaultperms'].append([channel, permission])
-            self.pluginboss.save()
+            self.config.save()
             if channel:
                 event.reply("Done! Everybody now has %s in %s!" % (permission, channel))
             else:
@@ -508,7 +508,7 @@ class Auth(command.CommandPluginSuperclass):
         except ValueError:
             event.reply("That permission is not in the default list")
         else:
-            self.pluginboss.save()
+            self.config.save()
             event.reply("Done. Revoked.")
 
     def list_default(self, event, match):

@@ -29,10 +29,11 @@ class CoreControl(CommandPluginSuperclass):
 
     def configreload(self, event, match):
         try:
-            self.pluginboss.load()
+            self.pluginboss._load()
         except Exception, e:
             event.reply("There was a problem loading the new json. Check for syntax errors maybe? Full traceback in log")
             raise
+        # Each plugin will reload their individual json files when we call reload()
         for plugin in self.pluginboss.loaded_plugins.itervalues():
             plugin.reload()
         event.reply("Config reloaded!")

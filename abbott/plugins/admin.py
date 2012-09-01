@@ -75,7 +75,7 @@ class IRCOpProvider(CommandPluginSuperclass):
         if "optimeout" not in self.config or \
                 not isinstance(self.config['optimeout'], dict):
             self.config['optimeout'] = {}
-            self.pluginboss.save()
+            self.config.save()
 
         self.install_command(
                 cmdname="optimeout",
@@ -102,7 +102,7 @@ class IRCOpProvider(CommandPluginSuperclass):
         # "chanserv" - messages chanserv
         if not "opmethod" in self.config:
             self.config['opmethod'] = {}
-            self.pluginboss.save()
+            self.config.save()
 
     def stop(self):
         # Cancel all pending timers
@@ -121,7 +121,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             timeout = self.config['optimeout'][chan]
         except KeyError:
             self.config['optimeout'][chan] = 0
-            self.pluginboss.save()
+            self.config.save()
             timeout = 0
 
         try:
@@ -275,7 +275,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             channel = event.channel
 
         self.config['optimeout'][channel] = timeout
-        self.pluginboss.save()
+        self.config.save()
 
         timeoutevent = self.op_timeout_event.get(channel, None)
         if timeout < 1:
@@ -302,7 +302,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             channel = event.channel
 
         self.config['opmethod'][channel] = newmode
-        self.pluginboss.save()
+        self.config.save()
         reply("Okay set.")
 
     ### Handlers for op and deop requests for arbitrary users from other

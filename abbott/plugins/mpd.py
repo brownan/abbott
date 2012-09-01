@@ -140,6 +140,6 @@ class MPDPlugin(CommandPluginSuperclass):
             new_str = ""
 
         self.config['str'] = new_str
-        self.pluginboss.save()
+        self.config.save()
 
         event.reply("Saved!")

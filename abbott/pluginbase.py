@@ -1,7 +1,28 @@
 from __future__ import print_function
 import json
+import UserDict
+import os
+import os.path
 
 from twisted.internet import defer
+
+class PluginConfig(UserDict.UserDict):
+    """Installed in plugins as self.config. Provides a dictionary-like
+    interface with a method .save() to save to persistent storage. Uses a json
+    file as a backing store.
+
+    """
+    def __init__(self, jsonfile):
+        """Initialize a config from a json file."""
+        self._jsonfile = jsonfile
+        with open(jsonfile, 'r') as inp:
+            self.data= json.load(inp)
+
+    def save(self):
+        with open(self._jsonfile+"~", 'w') as out:
+            json.dump(self.data, out, indent=4)
+        os.rename(self._jsonfile+"~", self._jsonfile)
+
 
 class PluginBoss(object):
     """Handles the loading and unloading of plugins and the reading 
@@ -11,13 +32,15 @@ class PluginBoss(object):
     a handle to it
     """
     def __init__(self, config, transport):
-        self._filename = config
+        self._configdir = config
         self._transport = transport
+
+        self._filename = os.path.join(config, "config.json")
 
         self.loaded_plugins = {}
         
         try:
-            self.load()
+            self._load()
         except IOError:
             self._seed_defaults()
 
@@ -63,7 +86,6 @@ I'll create a new one for you now""")
 
         self.config = {
                 'core': {
-                    'admins': [admin],
                     'plugins': [
                         # Good default set of plugins to bootstrap functionality
                         'irc.IRCBotPlugin',
@@ -91,11 +113,15 @@ I'll create a new one for you now""")
                 }
         self.save()
 
-    def load(self):
+    def _load(self):
         with open(self._filename, 'r') as file_handle:
             self.config = json.load(file_handle)
 
     def save(self):
+        """Saves the master config. Use plugin.config.save() to save plugin
+        configs
+        
+        """
         with open(self._filename, 'w') as output_file_handle:
             json.dump(self.config, output_file_handle, indent=4)
 
@@ -127,12 +153,31 @@ I'll create a new one for you now""")
         plugin.stop()
 
     def get_plugin_config(self, plugin_name):
+        """Returns a config dictionary for the named plugin. This dict has an
+        additional method: .save(), to save any changes back to persistant
+        store
+
+        """
         try:
-            return self.config['plugin_config'][plugin_name]
+            old_config = self.config['plugin_config'][plugin_name]
         except KeyError:
-            config = {}
-            self.config['plugin_config'][plugin_name] = config
-            return config
+            old_config = {}
+        
+        plugin_config_path = os.path.join(self._configdir, plugin_name)+".json"
+
+        if not os.path.exists(plugin_config_path):
+            with open(plugin_config_path, "w") as out:
+                json.dump(old_config, out, indent=4)
+
+        if plugin_name in self.config['plugin_config']:
+            del self.config['plugin_config'][plugin_name]
+            self.save()
+        if not self.config['plugin_config']:
+            del self.config['plugin_config']
+            self.save()
+
+
+        return PluginConfig(plugin_config_path)
 
 
 class BotPlugin(object):

@@ -127,7 +127,7 @@ class IRCBot(irc.IRCClient):
 
         if channel not in self.factory.config['channels']:
             self.factory.config['channels'].append(channel)
-            self.factory.pluginboss.save()
+            self.factory.config.save()
 
     def left(self, channel):
         """We have left a channel"""
@@ -135,7 +135,7 @@ class IRCBot(irc.IRCClient):
 
         if channel in self.factory.config['channels']:
             self.factory.config['channels'].remove(channel)
-            self.factory.pluginboss.save()
+            self.factory.config.save()
 
     ### Things we see other users doing or observe about the channel
 
@@ -384,7 +384,8 @@ class IRCController(CommandPluginSuperclass):
         self.transport.send_event(newevent)
 
         # Also change the configuration
-        self.pluginboss.config['plugin_config']['irc.IRCBotPlugin']['nick'] = newnick
-        self.pluginboss.save()
+        botplugin_config = self.pluginboss.get_plugin_config("irc.IRCBotPlugin")
+        botplugin_config['nick'] = newnick
+        botplugin_config.save()
         self.pluginboss.loaded_plugins['irc.IRCBotPlugin'].reload()
 
