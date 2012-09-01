@@ -538,7 +538,7 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="unquiet",
                 cmdmatch="unquiet|UNQUIET",
-                cmdusage="<nick or hostmask> [in <duration>]",
+                cmdusage="<nick or hostmask> [in <delay>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0})?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.quiet",
@@ -561,7 +561,7 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="unban",
                 cmdmatch="unban|UNBAN",
-                cmdusage="<nick or hostmask> [in <duration>]",
+                cmdusage="<nick or hostmask> [in <delay>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0})?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.ban",
