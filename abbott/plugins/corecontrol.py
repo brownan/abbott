@@ -76,8 +76,8 @@ class Help(CommandPluginSuperclass):
                     if None in where:
                         globalcommands.append(cmd[0])
                     else:
-                        for chan in where:
-                            channelcommands[chan].append(cmd[0])
+                        for channel in where:
+                            channelcommands[channel].append(cmd[0])
 
             else:
                 # Go through the sub-commands and make sure there is at least
@@ -90,8 +90,8 @@ class Help(CommandPluginSuperclass):
                 if None in chans:
                     globalcommands.append(group.grpname)
                 else:
-                    for chan in chans:
-                        channelcommands[chan].append(group.grpname)
+                    for channel in chans:
+                        channelcommands[channel].append(group.grpname)
 
         try:
             prefix = self.pluginboss.config['command']['prefix']
@@ -110,10 +110,10 @@ class Help(CommandPluginSuperclass):
                             ", ".join(globalcommands)
                             ))
 
-            for chan, cmds in channelcommands.iteritems():
+            for channel, cmds in channelcommands.iteritems():
                 event.reply(notice=True, direct=True,
                         msg="In %s you can execute: %s" % (
-                            chan, ", ".join(cmds)
+                            channel, ", ".join(cmds)
                             ))
 
             event.reply(notice=True, direct=True,

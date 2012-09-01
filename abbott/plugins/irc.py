@@ -105,8 +105,8 @@ class IRCBot(irc.IRCClient):
         log.msg("Connection made")
 
         # Join the configured channels
-        for chan in self.factory.config['channels']:
-            self.join(chan)
+        for channel in self.factory.config['channels']:
+            self.join(channel)
 
     def connectionLost(self, reason):
         """The connection is down and this object is about to be destroyed,
@@ -171,7 +171,7 @@ class IRCBot(irc.IRCClient):
         args is a tuple with any additional info required for the mode
         """
         self.factory.broadcast_message("irc.on_mode_change",
-                user=user, chan=channel, set=set, modes=modes, args=args)
+                user=user, channel=channel, set=set, modes=modes, args=args)
 
     def userJoined(self, user, channel):
         self.factory.broadcast_message("irc.on_user_joined",
@@ -209,6 +209,14 @@ class IRCBot(irc.IRCClient):
         """
         self.factory.broadcast_message("irc.on_unknown",
                 prefix=prefix, command=command, params=params)
+
+    def mode(self, channel, set, modes, limit=None, user=None, mask=None):
+        """This overridden method exists to make the parameter 'channel'
+        uniform with the rest of this code. twisted uses the parameter name
+        'chan'
+
+        """
+        irc.IRCClient.mode(self, channel, set, modes, limit, user, mask)
 
 
 class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
@@ -282,7 +290,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
             'irc.do_kick':          ('kick',    ('channel', 'user', 'reason')),
             'irc.do_invite':        ('invite',  ('user', 'channel')),
             'irc.do_topic':         ('topic',   ('channel', 'topic')),
-            'irc.do_mode':          ('mode',    ('chan','set','modes','limit','user','mask')),
+            'irc.do_mode':          ('mode',    ('channel','set','modes','limit','user','mask')),
             'irc.do_say':           ('say',     ('channel', 'message', 'length')),
             # This is just privmsg. It can send to channels or users
             'irc.do_msg':           ('msg',     ('user', 'message', 'legnth')),
@@ -309,6 +317,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
 
     def on_request_irc_getnick(self):
         return defer.succeed(self.client.nickname)
+
 
 class IRCController(CommandPluginSuperclass):
     """This plugin provides a few administrative tasks in conjunction with the

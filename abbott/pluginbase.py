@@ -76,9 +76,9 @@ I'll create a new one for you now""")
                 break
 
         while True:
-            chan = raw_input("Any particular channel I should join to begin with? >")
-            chan = chan.strip()
-            if chan:
+            channel = raw_input("Any particular channel I should join to begin with? >")
+            channel = channel.strip()
+            if channel:
                 break
 
 
@@ -100,7 +100,7 @@ I'll create a new one for you now""")
                         'server': server,
                         'port': port,
                         'nick': nick,
-                        'channels': [chan],
+                        'channels': [channel],
                         },
                     'auth.Auth': {
                         'perms': {

@@ -1,6 +1,9 @@
 from collections import defaultdict, deque
 from functools import wraps
 import glob, os.path
+import heapq
+import time
+import re
 
 from twisted.internet import reactor
 from twisted.python import log
@@ -111,21 +114,21 @@ class IRCOpProvider(CommandPluginSuperclass):
         for delayedcall in self.op_timeout_event.itervalues():
             delayedcall.cancel()
 
-    def _set_op_timeout(self, chan):
+    def _set_op_timeout(self, channel):
         """Sets the op timeout for the given channel. If there is not currently
         an op timeout, makes one. If there is currently a timeout set, resets
         the timer.
 
         """
         try:
-            timeout = self.config['optimeout'][chan]
+            timeout = self.config['optimeout'][channel]
         except KeyError:
-            self.config['optimeout'][chan] = 0
+            self.config['optimeout'][channel] = 0
             self.config.save()
             timeout = 0
 
         try:
-            method = self.config['opmethod'][chan]
+            method = self.config['opmethod'][channel]
         except KeyError:
             # no op method, we need to keep op
             timeout = 0
@@ -133,7 +136,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             if method not in ('weechat', 'chanserv'):
                 timeout = 0
 
-        delayedcall = self.op_timeout_event.get(chan, None)
+        delayedcall = self.op_timeout_event.get(channel, None)
         if timeout < 1:
             # This channel has no timeout set. Remove one if there is one set.
             if delayedcall:
@@ -149,7 +152,7 @@ class IRCOpProvider(CommandPluginSuperclass):
                 def relinquish():
                     mynick = (yield self.transport.issue_request("irc.getnick"))
                     event = Event("irc.do_mode",
-                            chan=chan,
+                            channel=channel,
                             set=False,
                             modes="o",
                             user=mynick,
@@ -159,10 +162,10 @@ class IRCOpProvider(CommandPluginSuperclass):
                     # Go ahead and set this to false here, to avoid race
                     # conditions if a plugin requests op right now after we've
                     # sent the -o mode but before it's granted.
-                    self.have_op[chan] = False
+                    self.have_op[channel] = False
                     
-                    del self.op_timeout_event[chan]
-                self.op_timeout_event[chan] = reactor.callLater(timeout, relinquish)
+                    del self.op_timeout_event[channel]
+                self.op_timeout_event[channel] = reactor.callLater(timeout, relinquish)
 
     @defer.inlineCallbacks
     def on_request_ircadmin_opself(self, channel):
@@ -218,28 +221,28 @@ class IRCOpProvider(CommandPluginSuperclass):
         if (event.set == True and "o" in event.modes and event.args and
                 event.args[0] == mynick):
             # Op acquired. Make a note of it
-            self.have_op[event.chan] = True
+            self.have_op[event.channel] = True
 
             # Now that we have op, call deferreds on anything that was waiting
-            log.msg("I was given op. Calling op callbacks on %s" % event.chan)
-            for deferred, timeout in self.waiting_for_op.pop(event.chan, set()):
+            log.msg("I was given op. Calling op callbacks on %s" % event.channel)
+            for deferred, timeout in self.waiting_for_op.pop(event.channel, set()):
                 timeout.cancel()
-                deferred.callback(event.chan)
+                deferred.callback(event.channel)
 
             # Now that we have op, set a timeout to relinquish it
-            self._set_op_timeout(event.chan)
+            self._set_op_timeout(event.channel)
 
         elif (event.set == False and "o" in event.modes and event.args and
                 event.args[0] == mynick):
             # Op gone
-            self.have_op[event.chan] = False
+            self.have_op[event.channel] = False
             try:
-                timeoutevent = self.op_timeout_event[event.chan]
+                timeoutevent = self.op_timeout_event[event.channel]
             except KeyError:
                 pass
             else:
                 timeoutevent.cancel()
-                del self.op_timeout_event[event.chan]
+                del self.op_timeout_event[event.channel]
 
     def on_event_irc_on_join(self, event):
         """If we find ourself joining a channel that we thought we had op, then
@@ -312,7 +315,7 @@ class IRCOpProvider(CommandPluginSuperclass):
         if self.have_op[channel]:
             self._set_op_timeout(channel)
             self.transport.send_event(Event("irc.do_mode",
-                chan=channel,
+                channel=channel,
                 set=True,
                 modes='o',
                 user=nick,
@@ -324,7 +327,7 @@ class IRCOpProvider(CommandPluginSuperclass):
         if self.have_op[channel]:
             self._set_op_timeout(channel)
             self.transport.send_event(Event("irc.do_mode",
-                chan=channel,
+                channel=channel,
                 set=False,
                 modes='o',
                 user=nick,
@@ -343,9 +346,9 @@ class IRCOpProvider(CommandPluginSuperclass):
             log.msg("Sending OP request to chanserv via weechat...")
             path = glob.glob(os.path.expanduser("~/.weechat/weechat_fifo_*"))[0]
             with open(path, 'w') as out:
-                out.write("irc.server.freenode */msg ChanServ {op} {chan} {nick}\n".format(
+                out.write("irc.server.freenode */msg ChanServ {op} {channel} {nick}\n".format(
                     op="op" if opset else "deop",
-                    chan=channel,
+                    channel=channel,
                     nick=nick,
                     ))
 
@@ -353,12 +356,27 @@ class IRCOpProvider(CommandPluginSuperclass):
             log.msg("Sending OP request to chanserv")
             self.transport.send_event(Event("irc.do_msg",
                 user="ChanServ",
-                message="{op} {chan} {nick}",
+                message="{op} {channel} {nick}",
                 ))
 
         else:
             raise NoOpMethod("I have no way to acquire or give OP on %s" % channel)
         
+duration_match = r"(?P<duration>\d+[dhmsw])"
+def parse_time(timestr):
+    duration = 0
+    multipliers = {
+            's': 1,
+            'm': 60,
+            'h': 60*60,
+            'd': 60*60*24,
+            'w': 60*60*24*7,
+            }
+    for component in re.findall(duration_match, timestr):
+        time, unit = component[:-1], component[-1]
+        duration += int(time) * multipliers[unit]
+
+    return duration
 
 class IRCAdmin(CommandPluginSuperclass):
     """Provides a command interface to IRC operator tasks. Uses one of the
@@ -368,8 +386,88 @@ class IRCAdmin(CommandPluginSuperclass):
 
     """
 
+    def __init__(self, *args):
+        self.later_timer = None
+        self.started = False
+
+        super(IRCAdmin, self).__init__(*args)
+
+    def reload(self):
+        super(IRCAdmin, self).reload()
+        if "dolater" not in self.config:
+            self.config['dolater'] = []
+            self.config.save()
+
+        heapq.heapify(self.config['dolater'])
+
+        if self.later_timer:
+            self.later_timer.cancel()
+        self._set_later_timer()
+
+
+    def _set_later_timer(self):
+        """Looks at the tasks we have to do later, and sets a callLater timer
+        for the next one
+        """
+        if not self.started:
+            return
+        if self.later_timer:
+            self.later_timer.cancel()
+
+        if not self.config['dolater']:
+            self.later_timer = None
+            return
+        next_event = self.config['dolater'][0]
+
+        log.msg("Next event is %r. Setting timer" % (next_event,))
+        delay = max(next_event[0]-time.time(), 1)
+        self.later_timer = reactor.callLater(delay, self._process_laters)
+
+    def _process_laters(self):
+
+        self.later_timer = None
+        now = time.time()
+        later_items = self.config['dolater']
+
+        try:
+            while later_items and later_items[0][0] < now:
+                event_info = heapq.heappop(later_items)[1]
+                log.msg("Processing later event %r" % (event_info,))
+                
+                channel = event_info['channel']
+                user = event_info['user']
+                mode = event_info['mode']
+                def reply(s):
+                    s = "I was about to un-{0} {1}, but {2}".format(
+                            {'q':'quiet','b':'ban'}[mode],
+                            user,
+                            s,
+                            )
+                    self.transport.send_event(Event("irc.do_msg",
+                        user=channel,
+                        message=s,
+                        ))
+                self._send_as_op(Event("irc.do_mode",
+                    channel=channel,
+                    set=False,
+                    modes=mode,
+                    user=user),
+                    reply,
+                    )
+        finally:
+            self.config.save()
+            self._set_later_timer()
+
+    def stop(self):
+        super(IRCAdmin, self).stop()
+        if self.later_timer:
+            self.later_timer.cancel()
+
     def start(self):
         super(IRCAdmin, self).start()
+
+        self.started = True
+        self._set_later_timer()
 
         # kick command
         self.install_command(
@@ -429,39 +527,65 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="quiet",
                 cmdmatch="quiet|QUIET",
-                cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
+                cmdusage="<nick or hostmask> [for <duration>]",
+                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0})?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.quiet,
-                helptext="Quiets a user"
+                helptext="Quiets a user."
                 )
 
         self.install_command(
                 cmdname="unquiet",
                 cmdmatch="unquiet|UNQUIET",
-                cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
+                cmdusage="<nick or hostmask> [in <duration>]",
+                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0})?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.unquiet,
                 helptext="Un-quiets a user"
                 )
 
+        # Ban commands
+        self.install_command(
+                cmdname="ban",
+                cmdmatch="ban|BAN",
+                cmdusage="<nick or hostmask> [for <duration>] [reason]",
+                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0})?(?: (?P<reason>.+))?$".format(duration_match),
+                prefix=".",
+                permission="irc.op.ban",
+                callback=self.ban,
+                helptext="Bans a user."
+                )
+
+        self.install_command(
+                cmdname="unban",
+                cmdmatch="unban|UNBAN",
+                cmdusage="<nick or hostmask> [in <duration>]",
+                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0})?$".format(duration_match),
+                prefix=".",
+                permission="irc.op.ban",
+                callback=self.unban,
+                helptext="Un-bans a user"
+                )
+
     @defer.inlineCallbacks
-    def _send_as_op(self, event, reply):
+    def _send_as_op(self, event, reply=lambda s: None):
         """Issues an ircadmin.opself request, then sends the event. If the
         opself fails, sends an error to the reply function provided
 
         """
         try:
-            yield self.transport.issue_request("ircadmin.opself", event.chan)
+            yield self.transport.issue_request("ircadmin.opself", event.channel)
         except OpTimedOut:
             reply("I could not become OP. Check the error log, configuration, etc.")
+            defer.returnValue(False)
         except NoOpMethod:
-            reply("I can't do that in %s, I don't have OP and have no way to acquire it!" % event.chan)
+            reply("I can't do that in %s, I don't have OP and have no way to acquire it!" % event.channel)
+            defer.returnValue(False)
         else:
             self.transport.send_event(event)
+            defer.returnValue(True)
 
     @require_channel
     def kick(self, event, match):
@@ -488,7 +612,7 @@ class IRCAdmin(CommandPluginSuperclass):
         channel = event.channel
 
         voiceevent = Event("irc.do_mode",
-                chan=channel,
+                channel=channel,
                 set=True,
                 modes="v",
                 user=nick,
@@ -505,7 +629,7 @@ class IRCAdmin(CommandPluginSuperclass):
         channel = event.channel
 
         voiceevent = Event("irc.do_mode",
-                chan=channel,
+                channel=channel,
                 set=False,
                 modes="v",
                 user=nick,
@@ -546,30 +670,102 @@ class IRCAdmin(CommandPluginSuperclass):
     def quiet(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
+        duration = groupdict['duration']
         channel = event.channel
 
+        self._do_moderequest('q', event, nick, duration, channel)
+
+    @require_channel
+    @defer.inlineCallbacks
+    def ban(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        duration = groupdict['duration']
+        channel = event.channel
+        reason = groupdict['reason']
+
+        yield self._do_moderequest('b', event, nick, duration, channel)
+        self._send_as_op(Event("irc.do_kick",
+            channel=channel,
+            user=nick,
+            reason=reason or ("Requested by " + event.user.split("!")[0]),
+            ))
+
+
+    @defer.inlineCallbacks
+    def _do_moderequest(self, mode, event, nick, duration, channel):
         newevent = Event("irc.do_mode",
-                chan=channel,
+                channel=channel,
                 set=True,
-                modes='q',
+                modes=mode,
                 user=nick,
                 )
-        log.msg("quieting %s in %s" % (nick, channel))
-        self._send_as_op(newevent, event.reply)
+        if duration:
+            log.msg("+%s for %s in %s for %s" % (mode, nick, channel, duration))
+        else:
+            log.msg("+%s for %s in %s" % (mode, nick, channel, ))
+
+        if not (yield self._send_as_op(newevent, event.reply)):
+            return
+
+        if duration:
+            duration = parse_time(duration)
+            endtime = time.time()+duration
+            heapq.heappush(self.config['dolater'],
+                    [endtime,
+                        {
+                            'channel': channel,
+                            'user': nick,
+                            'mode': mode,
+                        },
+                    ]
+                )
+            self.config.save()
+            self._set_later_timer()
 
     @require_channel
     def unquiet(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
+        duration = groupdict['duration']
         channel = event.channel
+        
+        self._do_modederequest('q', event, nick, duration, channel)
+
+    @require_channel
+    def unban(self, event, match):
+        groupdict = match.groupdict()
+        nick = groupdict['nick']
+        duration = groupdict['duration']
+        channel = event.channel
+        
+        self._do_modederequest('b', event, nick, duration, channel)
+
+    def _do_modederequest(self, mode, event, nick, duration, channel):
+        if duration:
+            duration = parse_time(duration)
+            endtime = time.time()+duration
+            heapq.heappush(self.config['dolater'],
+                    [endtime,
+                        {
+                            'channel': channel,
+                            'user': nick,
+                            'mode': mode,
+                        },
+                    ]
+                )
+            self.config.save()
+            self._set_later_timer()
+            event.reply("It shall be done")
+            return
 
         newevent = Event("irc.do_mode",
-                chan=channel,
+                channel=channel,
                 set=False,
-                modes='q',
+                modes=mode,
                 user=nick,
                 )
-        log.msg("unquieting %s in %s" % (nick, channel))
+        log.msg("-%s for %s in %s" % (mode, nick, channel))
         self._send_as_op(newevent, event.reply)
 
 
