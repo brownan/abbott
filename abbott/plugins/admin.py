@@ -219,8 +219,8 @@ class IRCOpProvider(CommandPluginSuperclass):
         """
         mynick = (yield self.transport.issue_request("irc.getnick"))
 
-        if (event.set == True and "o" in event.modes and event.args and
-                event.args[0] == mynick):
+        if (event.set == True and "o" == event.mode and
+                event.arg == mynick):
             # Op acquired. Make a note of it
             self.have_op[event.channel] = True
 
@@ -233,9 +233,10 @@ class IRCOpProvider(CommandPluginSuperclass):
             # Now that we have op, set a timeout to relinquish it
             self._set_op_timeout(event.channel)
 
-        elif (event.set == False and "o" in event.modes and event.args and
-                event.args[0] == mynick):
+        elif (event.set == False and "o" == event.mode and
+                event.arg == mynick):
             # Op gone
+            log.msg("I am no longer OP on %s" % event.channel)
             self.have_op[event.channel] = False
             try:
                 timeoutevent = self.op_timeout_event[event.channel]

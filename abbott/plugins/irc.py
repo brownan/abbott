@@ -170,8 +170,13 @@ class IRCBot(irc.IRCClient):
 
         args is a tuple with any additional info required for the mode
         """
-        self.factory.broadcast_message("irc.on_mode_change",
-                user=user, channel=channel, set=set, modes=modes, args=args)
+        # The event broadcast out is slightly different. Events will always
+        # contain exactly one mode change, while we may get more than one mode
+        # change from the irc server in a single call to this method. arg may
+        # be None for modes that don't set an arg.
+        for mode, arg in zip(modes, args):
+            self.factory.broadcast_message("irc.on_mode_change",
+                    user=user, channel=channel, set=set, mode=mode, arg=arg)
 
     def userJoined(self, user, channel):
         self.factory.broadcast_message("irc.on_user_joined",
