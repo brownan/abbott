@@ -63,7 +63,7 @@ class IRCOpProvider(CommandPluginSuperclass):
 
         # Maps channel names to a boolean indicating whether we currently hold
         # op there or not
-        self.have_op = defaultdict(bool)
+        self.have_op = {}
 
         # Maps channel names to a set of (deferred, IDelayedCall) tuples where
         # deferred is to be called when we get op, and the delayed call will
@@ -114,6 +114,28 @@ class IRCOpProvider(CommandPluginSuperclass):
         
         for delayedcall in self.op_timeout_event.itervalues():
             delayedcall.cancel()
+
+    @defer.inlineCallbacks
+    def _has_op(self, channel):
+        """Returns a deferred that fires with True if we have op on the
+        channel, or False if we don't or it can't be determined.
+
+        If there is no entry in have_op, we do a NAMES lookup on the channel to
+        try and determine if we are OP or not.
+
+        """
+        try:
+            defer.returnValue( self.have_op[channel] )
+        except KeyError:
+            # determine if we have OP
+            names_list = (yield self.transport.issue_request("irc.names",channel))
+
+            nick = (yield self.transport.issue_request("irc.getnick"))
+
+            has_op = "@"+nick in names_list
+            self.have_op[channel] = has_op
+            defer.returnValue(has_op)
+
 
     def _set_op_timeout(self, channel):
         """Sets the op timeout for the given channel. If there is not currently
@@ -180,7 +202,7 @@ class IRCOpProvider(CommandPluginSuperclass):
         configured.
 
         """
-        if self.have_op[channel]:
+        if (yield self._has_op(channel)):
             # Already has op. Reset the timeout timer and return success
             self._set_op_timeout(channel)
             defer.returnValue(channel)
@@ -313,8 +335,9 @@ class IRCOpProvider(CommandPluginSuperclass):
     ### Handlers for op and deop requests for arbitrary users from other
     ### plugins
 
+    @defer.inlineCallbacks
     def on_request_ircadmin_op(self, channel, nick):
-        if self.have_op[channel]:
+        if (yield self._has_op(channel)):
             self._set_op_timeout(channel)
             self.transport.send_event(Event("irc.do_mode",
                 channel=channel,
@@ -324,9 +347,10 @@ class IRCOpProvider(CommandPluginSuperclass):
                 ))
         else:
             self._do_op(channel, nick, True)
-        return defer.succeed(None)
+        return
+    @defer.inlineCallbacks
     def on_request_ircadmin_deop(self, channel, nick):
-        if self.have_op[channel]:
+        if (yield self._has_op(channel)):
             self._set_op_timeout(channel)
             self.transport.send_event(Event("irc.do_mode",
                 channel=channel,
@@ -336,7 +360,7 @@ class IRCOpProvider(CommandPluginSuperclass):
                 ))
         else:
             self._do_op(channel, nick, False)
-        return defer.succeed(None)
+        return
 
     def _do_op(self, channel, nick, opset):
         """Issues an op request with a method appropriate for the given

@@ -132,6 +132,72 @@ class IRCWhois(CommandPluginSuperclass):
         event.reply("Whois info for %s:" % nick)
         for command, params in info.iteritems():
             event.reply("%s: %s" % (command, params))
+
+class Names(CommandPluginSuperclass):
+    """Provides a NAMES request for other plugins and a !names command"""
+    def start(self):
+        super(Names, self).start()
+
+        self.provides_request("irc.names")
+
+        self.listen_for_event("irc.on_unknown")
+
+        self.install_command(
+                cmdname="names",
+                argmatch=r"(?P<channel>\S+)?$",
+                cmdusage="[channel]",
+                callback=self.do_names,
+                helptext="Does an IRC NAMES command and replies with the result",
+                permission="irc.names",
+                )
+
+        self.currentinfo = []
+        self.pendingwhoises = defaultdict(set)
+
+    @defer.inlineCallbacks
+    def on_request_irc_names(self, channel):
+        self.transport.send_event(Event("irc.do_raw",
+                line="NAMES " + channel))
+        log.msg("NAMES line sent for channel %s. Awaiting reply..." % channel)
+
+        d = defer.Deferred()
+        self.pendingwhoises[channel].add(d)
+
+        names = (yield d)
+
+        defer.returnValue(names)
+
+    def on_event_irc_on_unknown(self, event):
+        command = event.command
+
+        if command == "RPL_NAMREPLY":
+            channel = event.params[2]
+            names = event.params[3]
+            self.currentinfo.append(names)
+
+        elif command == "RPL_ENDOFNAMES":
+            channel = event.params[1]
+            names = " ".join(self.currentinfo)
+            self.currentinfo = []
+            for d in self.pendingwhoises.pop(channel):
+                d.callback(names)
+
+
+    @defer.inlineCallbacks
+    def do_names(self, event, match):
+        gd = match.groupdict()
+        channel = gd['channel']
+
+        if not channel:
+            if event.direct:
+                event.reply("on what channel?")
+                return
+            channel = event.channel
+
+        info = (yield self.transport.issue_request("irc.names", channel))
+
+        event.reply("NAMES info for {0}: {1}".format(channel, info))
+
         
 class ReplyInserter(CommandPluginSuperclass):
     """This plugin's function is to insert a reply() function to each incoming

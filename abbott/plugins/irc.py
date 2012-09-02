@@ -40,7 +40,9 @@ class IRCBot(irc.IRCClient):
 
     def sendLine(self, line):
         """Overrides IRCClient.sendLine to encode outgoing lines with UTF-8.
-        Also implements some rate-limiting logic
+        Also implements some rate-limiting logic.
+
+        This method is also exported to other plugins as the irc.do_raw event.
         
         """
         if isinstance(line, str):
@@ -305,6 +307,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
             'irc.do_whois':         ('whois',   ('nickname', 'server')),
             'irc.do_setnick':       ('setNick', ('nickname',)),
             'irc.do_quit':          ('quit',    ('message',)),
+            'irc.do_raw':           ('sendLine',('line',)),
             }
 
         methodname, methodargs = events[event.eventtype]
