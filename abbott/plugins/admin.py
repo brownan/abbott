@@ -11,6 +11,7 @@ from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass
 from ..transport import Event
+from . import ircutil
 
 def require_channel(func):
     """Wraps command callbacks and requires them to be in response to a channel
@@ -306,7 +307,7 @@ class IRCOpProvider(CommandPluginSuperclass):
 
         self.config['opmethod'][channel] = newmode
         self.config.save()
-        reply("Okay set.")
+        event.reply("Okay set.")
 
     ### Handlers for op and deop requests for arbitrary users from other
     ### plugins
@@ -587,6 +588,38 @@ class IRCAdmin(CommandPluginSuperclass):
             self.transport.send_event(event)
             defer.returnValue(True)
 
+    @defer.inlineCallbacks
+    def _nick_to_hostmask(self, nick):
+        """Takes a nick or a hostmask and returns a hostmask. If the items
+        given looks like a hostmask (contains a ! and a @) then it is returned.
+        Otherwise, a whois is performed and the hostmask is returned with the
+        first two fields wildcarded.
+
+        This methed is intended to allow bans and quiets to match any nick!user
+        combination by banning/quieting all users from that host.
+
+        If no such user is found, an ircutil.NoSuchNick is raised. If the whois
+        fails, an ircutil.WhoisTimedout is raised.
+
+        Returnes a deferred that fires with the answer.
+
+        """
+        if "!" in nick and "@" in nick:
+            defer.returnValue(nick)
+            return
+
+        whois_results = (yield self.transport.issue_request("irc.whois", nick))
+
+        whoisuser = whois_results['RPL_WHOISUSER']
+
+        mask = "{0}!{1}@{2}".format(
+                '*',
+                '*',
+                whoisuser[2],
+                )
+
+        defer.returnValue(mask)
+
     @require_channel
     def kick(self, event, match):
         """A user has issued the kick command. Our job here is to acquire OP
@@ -694,16 +727,25 @@ class IRCAdmin(CommandPluginSuperclass):
 
     @defer.inlineCallbacks
     def _do_moderequest(self, mode, event, nick, duration, channel):
+        try:
+            mask = (yield self._nick_to_hostmask(nick))
+        except ircutil.NoSuchNick:
+            event.reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
+            return
+        except ircutil.WhoisTimedout:
+            event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
+            return
+
         newevent = Event("irc.do_mode",
                 channel=channel,
                 set=True,
                 modes=mode,
-                user=nick,
+                user=mask,
                 )
         if duration:
-            log.msg("+%s for %s in %s for %s" % (mode, nick, channel, duration))
+            log.msg("+%s for %s in %s for %s" % (mode, mask, channel, duration))
         else:
-            log.msg("+%s for %s in %s" % (mode, nick, channel, ))
+            log.msg("+%s for %s in %s" % (mode, mask, channel, ))
 
         if not (yield self._send_as_op(newevent, event.reply)):
             return
@@ -715,7 +757,7 @@ class IRCAdmin(CommandPluginSuperclass):
                     [endtime,
                         {
                             'channel': channel,
-                            'user': nick,
+                            'user': mask,
                             'mode': mode,
                         },
                     ]
@@ -741,7 +783,17 @@ class IRCAdmin(CommandPluginSuperclass):
         
         self._do_modederequest('b', event, nick, duration, channel)
 
+    @defer.inlineCallbacks
     def _do_modederequest(self, mode, event, nick, duration, channel):
+        try:
+            mask = (yield self._nick_to_hostmask(nick))
+        except ircutil.NoSuchNick:
+            event.reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
+            return
+        except ircutil.WhoisTimedout:
+            event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
+            return
+
         if duration:
             duration = parse_time(duration)
             endtime = time.time()+duration
@@ -749,7 +801,7 @@ class IRCAdmin(CommandPluginSuperclass):
                     [endtime,
                         {
                             'channel': channel,
-                            'user': nick,
+                            'user': mask,
                             'mode': mode,
                         },
                     ]
@@ -763,9 +815,9 @@ class IRCAdmin(CommandPluginSuperclass):
                 channel=channel,
                 set=False,
                 modes=mode,
-                user=nick,
+                user=mask,
                 )
-        log.msg("-%s for %s in %s" % (mode, nick, channel))
+        log.msg("-%s for %s in %s" % (mode, mask, channel))
         self._send_as_op(newevent, event.reply)
 
 
