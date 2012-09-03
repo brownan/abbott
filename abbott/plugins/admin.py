@@ -128,7 +128,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             defer.returnValue( self.have_op[channel] )
         except KeyError:
             # determine if we have OP
-            names_list = (yield self.transport.issue_request("irc.names",channel))
+            names_list = (yield self.transport.issue_request("irc.names",channel)).split()
 
             nick = (yield self.transport.issue_request("irc.getnick"))
 
@@ -554,7 +554,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="quiet",
                 cmdmatch="quiet|QUIET",
                 cmdusage="<nick or hostmask> [for <duration>]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0})?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0}+)?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.quiet,
@@ -565,7 +565,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="unquiet",
                 cmdmatch="unquiet|UNQUIET",
                 cmdusage="<nick or hostmask> [in <delay>]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0})?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0}+)?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.unquiet,
@@ -577,7 +577,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="ban",
                 cmdmatch="ban|BAN",
                 cmdusage="<nick or hostmask> [for <duration>] [reason]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0})?(?: (?P<reason>.+))?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0}+)?(?: (?P<reason>.+))?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.ban",
                 callback=self.ban,
@@ -588,7 +588,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="unban",
                 cmdmatch="unban|UNBAN",
                 cmdusage="<nick or hostmask> [in <delay>]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0})?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0}+)?$".format(duration_match),
                 prefix=".",
                 permission="irc.op.ban",
                 callback=self.unban,
