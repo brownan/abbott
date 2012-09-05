@@ -146,9 +146,9 @@ class IRCOpProvider(CommandPluginSuperclass):
         try:
             timeout = self.config['optimeout'][channel]
         except KeyError:
-            self.config['optimeout'][channel] = 0
+            self.config['optimeout'][channel] = 60
             self.config.save()
-            timeout = 0
+            timeout = 60
 
         try:
             method = self.config['opmethod'][channel]
@@ -428,6 +428,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         if self.later_timer:
             self.later_timer.cancel()
+            self.later_timer = None
         self._set_later_timer()
 
 
@@ -439,6 +440,7 @@ class IRCAdmin(CommandPluginSuperclass):
             return
         if self.later_timer:
             self.later_timer.cancel()
+            self.later_timer = None
 
         if not self.config['dolater']:
             self.later_timer = None
@@ -456,7 +458,7 @@ class IRCAdmin(CommandPluginSuperclass):
         later_items = self.config['dolater']
 
         try:
-            while later_items and later_items[0][0] < now:
+            while later_items and later_items[0][0] <= now:
                 event_info = heapq.heappop(later_items)[1]
                 log.msg("Processing later event %r" % (event_info,))
                 
@@ -488,6 +490,7 @@ class IRCAdmin(CommandPluginSuperclass):
         super(IRCAdmin, self).stop()
         if self.later_timer:
             self.later_timer.cancel()
+            self.later_timer = None
 
     def start(self):
         super(IRCAdmin, self).start()
@@ -615,9 +618,11 @@ class IRCAdmin(CommandPluginSuperclass):
 
     @defer.inlineCallbacks
     def _nick_to_hostmask(self, nick):
-        """Takes a nick or a hostmask and returns a hostmask. If the items
-        given looks like a hostmask (contains a ! and a @) then it is returned.
-        Otherwise, a whois is performed and the hostmask is returned with the
+        """Takes a nick or a hostmask and returns a parameter suitable for the
+        +b or +q modes. If the items given looks like a hostmask (contains a !
+        and a @) then it is returned. If the item is an extban (starts with a
+        $), then that is returned. Otherwise, it is assumed the parameter is a
+        nickname and a whois is performed and the hostmask is returned with the
         first two fields wildcarded.
 
         This methed is intended to allow bans and quiets to match any nick!user
@@ -629,7 +634,7 @@ class IRCAdmin(CommandPluginSuperclass):
         Returnes a deferred that fires with the answer.
 
         """
-        if "!" in nick and "@" in nick:
+        if ("!" in nick and "@" in nick) or (nick.startswith("$")):
             defer.returnValue(nick)
             return
 
@@ -743,11 +748,15 @@ class IRCAdmin(CommandPluginSuperclass):
         reason = groupdict['reason']
 
         yield self._do_moderequest('b', event, nick, duration, channel)
-        self._send_as_op(Event("irc.do_kick",
-            channel=channel,
-            user=nick,
-            reason=reason or ("Requested by " + event.user.split("!")[0]),
-            ))
+
+        # nick could also be a hostmask or extban. Do a simple check to see if
+        # it looks like a nick
+        if "@" not in nick and "!" not in nick and "$" not in nick:
+            self._send_as_op(Event("irc.do_kick",
+                channel=channel,
+                user=nick,
+                reason=reason or ("Requested by " + event.user.split("!")[0]),
+                ))
 
 
     @defer.inlineCallbacks
