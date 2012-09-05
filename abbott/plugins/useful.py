@@ -316,3 +316,22 @@ class URLShortener(BotPlugin):
         shortened = self.shortener.shorten(url)
 
         event.reply("^ %s" % shortened['id'], userprefix=False)
+
+class Owner(CommandPluginSuperclass):
+    """Just a simple plugin to print out the bot's owner. There is no online
+    config interface, so edit the json yourself and issue a configreload.
+
+    """
+    def start(self):
+        super(Owner, self).start()
+        self.install_command(
+                cmdname="owner",
+                helptext="Display who owns me",
+                callback=self.do_owner,
+                )
+
+    def do_owner(self, event, match):
+        if "owner" in self.config:
+            event.reply("My owner is " + self.config['owner'])
+        else:
+            event.reply("I... I don't know! \me cries")
