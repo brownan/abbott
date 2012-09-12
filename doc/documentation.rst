@@ -238,6 +238,12 @@ callback
     parameters: the event that initiated the command, and a re.Match object,
     used to retrieve the parameters.
     
+cmdmatch
+    An optional regex string specifying how to match the command name. This is
+    useful if you want to specify an alias, so you can do something like
+    "cmdname|cmdalias". It should not begin with a ^ or end with a $, since it
+    is combined with other regexes to form a complete pattern.
+    
 cmdusage
     A string to explain the arguments of this command. Something like
     “<required arg> [optional arg] ...”
@@ -391,7 +397,7 @@ Event("irc.on_mode_change", user, channel, set, mode, arg)
         The argument, or None if this mode doesn't take an argument
         
 Event("irc.on_user_joined", user, channel)
-    Emitted when we witness a user joinind a channel. Arguments are
+    Emitted when we witness a user join a channel. Arguments are
     self-explanatory.
     
 Event("irc.on_user_part", user, channel)
