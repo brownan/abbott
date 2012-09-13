@@ -128,7 +128,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             defer.returnValue( self.have_op[channel] )
         except KeyError:
             # determine if we have OP
-            names_list = (yield self.transport.issue_request("irc.names",channel)).split()
+            names_list = (yield self.transport.issue_request("irc.names",channel))
 
             nick = (yield self.transport.issue_request("irc.getnick"))
 

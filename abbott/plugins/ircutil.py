@@ -178,9 +178,10 @@ class Names(CommandPluginSuperclass):
         elif command == "RPL_ENDOFNAMES":
             channel = event.params[1]
             names = " ".join(self.currentinfo)
+            name_list = names.split()
             self.currentinfo = []
             for d in self.pendingwhoises.pop(channel):
-                d.callback(names)
+                d.callback(name_list)
 
 
     @defer.inlineCallbacks
