@@ -503,7 +503,53 @@ Requests Provided
 irc.getnick
     Deferred fires immediately with the bot's current nickname
     
-IRCController
+irc.IRCController
+-----------------
+
+This is a Command Plugin (see above) which provides a command interface to
+several tasks related to maintaining the IRC client itself, such as joining
+channels and changing nicks.
+
+Commands provided
+`````````````````
+The following commands are provided, and all require the irc.control permission:
+
+* join
+* part
+* nick
+
+ircutil.IRCWhois
+----------------
+
+Provides an abstraction for the irc.do_whois event which collects results and
+returns them with a requests interface.
+
+Requests Provided
+`````````````````
+irc.whois
+    Deferred fires with a dictionary of information from the server in response
+    to a whois.
+
+Commands Provided
+`````````````````
+
+whois
+    This command is meant for debugging, and nothing else. It requires the
+    irc.whois permission. Takes one parameter: the name to whois.
+
+ircutil.Names
 -------------
 
-A command plugin that 
+Provides an interface to the IRC NAMES command.
+
+Requests Provided
+`````````````````
+irc.names
+    Returned deferred fires with a list of names in the current channel. Takes
+    one parameter: the channel name.
+    
+Commands Provided
+`````````````````
+names
+    This command is meant for debugging, and nothing else. It requires the
+    irc.names permission. Takes one parameter: the channel to name.
