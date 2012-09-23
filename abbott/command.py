@@ -464,7 +464,7 @@ class CommandPluginSuperclass(BotPlugin):
                 event.reply(notice=True, direct=True,
                         msg="Sorry, you don't have access to that command")
             else:
-                reactor.callLater(random.uniform(0.5,3), event.reply, random.choice(replies), userprefix=False, notice=False)
+                reactor.callLater(random.uniform(0.5,2), event.reply, random.choice(replies), userprefix=False, notice=False)
 
     @defer.inlineCallbacks
     def __do_help(self, event, cmd):
