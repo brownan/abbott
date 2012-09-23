@@ -420,9 +420,6 @@ class CommandPluginSuperclass(BotPlugin):
         else:
             log.msg("User %s does not have permission for %s" % (event.user, cmd.cmdname))
 
-            if cmd.deniedcallback and cmd.deniedcallback(event, match):
-                return
-
             # Before we reply with a scathing retort to the user that tried to
             # invoke a command they shouldn't, check to see if the user's
             # nickname matches an authname in the auth plugin's permission
@@ -435,6 +432,11 @@ class CommandPluginSuperclass(BotPlugin):
             # if the user /would/ have had permission had their nickname been
             # their authname and they had been logged in with that authname
             nick = event.user.split("!",1)[0]
+            # If a mapping from nickname to authname is given in the config,
+            # perform this check against that instead of their nick.
+            nickmaps = self.pluginboss.config.get("command", {}).get("nickmaps", {})
+            nick = nickmaps.get(nick, nick)
+            
             authplugin = self.pluginboss.loaded_plugins['auth.Auth']
             from .plugins.auth import satisfies
             if nick in authplugin.permissions and authplugin.permissions[nick]:
@@ -457,6 +459,10 @@ class CommandPluginSuperclass(BotPlugin):
                         except KeyError:
                             pass
                         return
+
+            # Try the denied callback, if one exists
+            if cmd.deniedcallback and cmd.deniedcallback(event, match):
+                return
 
             # None of those checks above worked? Go ahead and issue our retort!
             replies = self.pluginboss.config.get('command',{}).get('denied_msgs',[])

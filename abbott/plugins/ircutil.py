@@ -152,7 +152,7 @@ class Names(CommandPluginSuperclass):
                 )
 
         self.currentinfo = []
-        self.pendingwhoises = defaultdict(set)
+        self.pending = defaultdict(set)
 
     @defer.inlineCallbacks
     def on_request_irc_names(self, channel):
@@ -161,7 +161,7 @@ class Names(CommandPluginSuperclass):
         log.msg("NAMES line sent for channel %s. Awaiting reply..." % channel)
 
         d = defer.Deferred()
-        self.pendingwhoises[channel].add(d)
+        self.pending[channel].add(d)
 
         names = (yield d)
 
@@ -180,8 +180,9 @@ class Names(CommandPluginSuperclass):
             names = " ".join(self.currentinfo)
             name_list = names.split()
             self.currentinfo = []
-            for d in self.pendingwhoises.pop(channel):
-                d.callback(name_list)
+            if channel in self.pending:
+                for d in self.pending.pop(channel):
+                    d.callback(name_list)
 
 
     @defer.inlineCallbacks
