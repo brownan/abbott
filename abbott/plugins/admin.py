@@ -4,6 +4,7 @@ import glob, os.path
 import heapq
 import time
 import re
+import random
 
 from twisted.internet import reactor
 from twisted.python import log
@@ -539,6 +540,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 permission="irc.op.kick",
                 prefix=".",
                 callback=self.kick,
+                deniedcallback=self.kickself,
                 helptext="Kicks a user from the current channel")
 
         # Op commands
@@ -593,6 +595,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.quiet,
+                deniedcallback=self.quietself,
                 helptext="Quiets a user."
                 )
 
@@ -697,6 +700,32 @@ class IRCAdmin(CommandPluginSuperclass):
                 user=nick, reason=reason)
         self._send_as_op(kickevent, event.reply)
 
+    @require_channel
+    def kickself(self, event, match):
+        targetnick = match.groupdict()['nick']
+        requestor = event.user.split("!")[0]
+
+        if targetnick == requestor:
+            kickevent = Event("irc.do_kick", channel=event.channel,
+                    user=requestor,
+                    reason="okay, you asked for it",
+                    )
+        elif random.randint(1,4) == 4:
+            kickevent = Event("irc.do_kick", channel=event.channel,
+                    user=requestor,
+                    reason="woops, my bad!",
+                    )
+        else:
+            kickevent = None
+
+        if kickevent:
+            def r(s):
+                event.reply("naa, I don't feel like it right now", userprefix=False)
+                log.msg(s)
+            self._send_as_op(kickevent,
+                    r,
+                    )
+            return True
 
     @require_channel
     def voice(self, event, match):
@@ -771,6 +800,29 @@ class IRCAdmin(CommandPluginSuperclass):
         self._do_moderequest('q', event.reply, nick, duration, channel)
 
     @require_channel
+    def quietself(self, event, match):
+        groupdict = match.groupdict()
+        nick = event.user.split("!")[0]
+        if random.randint(1,3) == 3 or nick == groupdict['nick']:
+            duration = 10
+            channel = event.channel
+            def r(s):
+                event.reply("naa, I don't feel like it right now", userprefix=False)
+                log.msg(s)
+            self._do_moderequest("q",
+                    r,
+                    nick,
+                    duration,
+                    channel,
+                    )
+            if nick != groupdict['nick']:
+                reactor.callLater(7,
+                        event.reply,
+                        "Woops, my bad!",
+                        )
+            return True
+
+    @require_channel
     @defer.inlineCallbacks
     def ban(self, event, match):
         groupdict = match.groupdict()
@@ -824,7 +876,9 @@ class IRCAdmin(CommandPluginSuperclass):
             return
 
         if duration:
-            self._set_timer(parse_time(duration), mask, channel, mode)
+            if isinstance(duration, basestring):
+                duration = parse_time(duration)
+            self._set_timer(duration, mask, channel, mode)
 
     @require_channel
     def unquiet(self, event, match):
@@ -856,7 +910,9 @@ class IRCAdmin(CommandPluginSuperclass):
             return
 
         if duration:
-            self._set_timer(parse_time(duration), mask, channel, mode)
+            if isinstance(duration, basestring):
+                duration = parse_time(duration)
+            self._set_timer(duration, mask, channel, mode)
             reply("It shall be done")
             return
 

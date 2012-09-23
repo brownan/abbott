@@ -103,6 +103,7 @@ class _CommandGroup(object):
     def install_command(self,
             cmdname,
             callback,
+            deniedcallback=None,
             cmdmatch=None,
             cmdusage=None,
             argmatch=None,
@@ -117,6 +118,12 @@ class _CommandGroup(object):
         callback is the callable to call when the command is invoked. It takes
         two arguments: the Event object from the request, and a re.Match object
         from the cmdmatch parameter.
+
+        deniedcallback is called if access was denied for the current user. If
+        False is returned, the normal error handling (replying with a message)
+        is activated. If True is returned, we assume that it was "handled" and
+        no further action is taken. The signature is the same as for the
+        callback.
 
         cmdmatch, if specified, is a regular expression string specifying how
         to match just the command name (not the arguments). If it is not
@@ -222,6 +229,7 @@ class _CommandGroup(object):
             prefixre=prefix_re,
             helpre=help_re,
             callback=callback,
+            deniedcallback=deniedcallback,
             helplines=help_str.split("\n"),
             ))
         self.subcmds.append(
@@ -236,6 +244,7 @@ _CommandTuple = namedtuple("_CommandTuple", [
     "prefixre",
     "helpre",
     "callback",
+    "deniedcallback",
     "helplines"
     ])
 _CommandGroupTuple = namedtuple("_CommandGroupTuple", [
@@ -410,6 +419,9 @@ class CommandPluginSuperclass(BotPlugin):
             cmd.callback(event, match)
         else:
             log.msg("User %s does not have permission for %s" % (event.user, cmd.cmdname))
+
+            if cmd.deniedcallback and cmd.deniedcallback(event, match):
+                return
 
             # Before we reply with a scathing retort to the user that tried to
             # invoke a command they shouldn't, check to see if the user's
