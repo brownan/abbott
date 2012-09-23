@@ -122,6 +122,7 @@ ALLOWED_BUILTINS = {
     'ord': ord,
     'pow': pow,
     'range': range,
+    # because __import__ is used in the builtin reduce to import the functools version
     'reduce': __import__("functools").reduce,
     'repr': repr,
     'reversed': reversed,

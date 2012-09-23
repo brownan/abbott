@@ -413,90 +413,122 @@ class IRCAdmin(CommandPluginSuperclass):
     """
 
     def __init__(self, *args):
-        self.later_timer = None
         self.started = False
+
+        # This dictionary maps tuples of (hostmask, channel, mode) to twisted timer
+        # objects. When the timer fires, the mode is unset on the given channel
+        # for the given hostmask
+        self.later_timers = {}
+
 
         super(IRCAdmin, self).__init__(*args)
 
     def reload(self):
         super(IRCAdmin, self).reload()
-        if "dolater" not in self.config:
-            self.config['dolater'] = []
+
+        if "laters" not in self.config:
+            self.config['laters'] = []
+
+        if self.started:
+            self._set_all_timers()
+        
+    def _set_all_timers(self):
+        """Reads from the config and syncs the twisted timers with that"""
+
+        for timer in self.later_timers.itervalues():
+            timer.cancel()
+
+        for activatetime, hostmask, channel, mode in self.config['laters']:
+            self._set_timer(activatetime - time.time(), hostmask, channel, mode)
+
+
+    def _set_timer(self, delay, hostmask, channel, mode):
+        """In delay seconds, issue a -mode request for hostmask on channel
+        
+        mode is either 'q' or 'b'
+        
+        """
+        # First, cancel any existing timers and remove any existing saved
+        # laters from the config
+        if (hostmask, channel, mode) in self.later_timers:
+            timer = self.later_timers.pop((hostmask, channel, mode))
+            timer.cancel()
+
+        # Filter out any events that match this one from the persistent config
+        self.config['laters'] = [item for item in self.config['laters']
+                if not (item[1] == hostmask and
+                       item[2] == channel and
+                       item[3] == mode
+                       )]
+
+        # This function will be run later
+        def do_later():
+            log.msg("timed request: -%s for %s in %s" % (mode, hostmask, channel))
+            # First, take this item out of the mapping
+            del self.later_timers[(hostmask, channel, mode)]
+
+            # And the persistent config
+            self.config['laters'] = [item for item in self.config['laters']
+                    if not (item[1] == hostmask and
+                           item[2] == channel and
+                           item[3] == mode
+                           )]
             self.config.save()
 
-        heapq.heapify(self.config['dolater'])
-
-        if self.later_timer:
-            self.later_timer.cancel()
-            self.later_timer = None
-        self._set_later_timer()
-
-
-    def _set_later_timer(self):
-        """Looks at the tasks we have to do later, and sets a callLater timer
-        for the next one
-        """
-        if not self.started:
-            return
-        if self.later_timer:
-            self.later_timer.cancel()
-            self.later_timer = None
-
-        if not self.config['dolater']:
-            self.later_timer = None
-            return
-        next_event = self.config['dolater'][0]
-
-        log.msg("Next event is %r. Setting timer" % (next_event,))
-        delay = max(next_event[0]-time.time(), 1)
-        self.later_timer = reactor.callLater(delay, self._process_laters)
-
-    def _process_laters(self):
-
-        self.later_timer = None
-        now = time.time()
-        later_items = self.config['dolater']
-
-        try:
-            while later_items and later_items[0][0] <= now:
-                event_info = heapq.heappop(later_items)[1]
-                log.msg("Processing later event %r" % (event_info,))
-                
-                channel = event_info['channel']
-                user = event_info['user']
-                mode = event_info['mode']
-                def reply(s):
-                    s = "I was about to un-{0} {1}, but {2}".format(
-                            {'q':'quiet','b':'ban'}[mode],
-                            user,
-                            s,
-                            )
-                    self.transport.send_event(Event("irc.do_msg",
-                        user=channel,
-                        message=s,
-                        ))
-                self._send_as_op(Event("irc.do_mode",
-                    channel=channel,
-                    set=False,
-                    modes=mode,
-                    user=user),
+            # prepare an error reply function
+            def reply(s):
+                s = "I was about to un-{0} {1}, but {2}".format(
+                        {'q':'quiet','b':'ban'}[mode],
+                        hostmask,
+                        s,
+                        )
+                self.transport.send_event(Event("irc.do_msg",
+                    user=channel,
+                    message=s,
+                    ))
+            # Now send the event
+            self._send_as_op(
+                    Event(
+                        "irc.do_mode",
+                        channel=channel,
+                        set=False,
+                        modes=mode,
+                        user=hostmask
+                        ),
                     reply,
                     )
-        finally:
-            self.config.save()
-            self._set_later_timer()
+
+        # Now submit the do_later() function to twisted to call it later
+        timer = reactor.callLater(max(1,delay), do_later)
+
+        log.msg("Setting -{0} on {1} in {2} in {3} seconds".format(
+            mode,
+            hostmask,
+            channel,
+            max(1,delay),
+            ))
+
+        # and file this timer away:
+        self.later_timers[(hostmask, channel, mode)] = timer
+
+        # Save to the persistent config
+        self.config['laters'].append(
+                (time.time()+delay, hostmask, channel, mode)
+                )
+        self.config.save()
+        
 
     def stop(self):
         super(IRCAdmin, self).stop()
-        if self.later_timer:
-            self.later_timer.cancel()
-            self.later_timer = None
 
+        for timer in self.later_timers.itervalues():
+            timer.cancel()
+        
     def start(self):
         super(IRCAdmin, self).start()
 
         self.started = True
-        self._set_later_timer()
+        self._set_all_timers()
 
         # kick command
         self.install_command(
@@ -736,7 +768,7 @@ class IRCAdmin(CommandPluginSuperclass):
         duration = groupdict['duration']
         channel = event.channel
 
-        self._do_moderequest('q', event, nick, duration, channel)
+        self._do_moderequest('q', event.reply, nick, duration, channel)
 
     @require_channel
     @defer.inlineCallbacks
@@ -747,7 +779,7 @@ class IRCAdmin(CommandPluginSuperclass):
         channel = event.channel
         reason = groupdict['reason']
 
-        yield self._do_moderequest('b', event, nick, duration, channel)
+        yield self._do_moderequest('b', event.reply, nick, duration, channel)
 
         # nick could also be a hostmask or extban. Do a simple check to see if
         # it looks like a nick
@@ -760,14 +792,21 @@ class IRCAdmin(CommandPluginSuperclass):
 
 
     @defer.inlineCallbacks
-    def _do_moderequest(self, mode, event, nick, duration, channel):
+    def _do_moderequest(self, mode, reply, nick, duration, channel):
+        """Does the work to set a mode on a nick (or hostmask) in a channel for
+        an optional duration. If duration is None, we will not set it back
+        after any length of time.
+
+        reply is used to send error messages. It should take a string.
+
+        """
         try:
             mask = (yield self._nick_to_hostmask(nick))
         except ircutil.NoSuchNick:
-            event.reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
+            reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
             return
         except ircutil.WhoisTimedout:
-            event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
+            reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
             return
 
         newevent = Event("irc.do_mode",
@@ -781,23 +820,11 @@ class IRCAdmin(CommandPluginSuperclass):
         else:
             log.msg("+%s for %s in %s" % (mode, mask, channel, ))
 
-        if not (yield self._send_as_op(newevent, event.reply)):
+        if not (yield self._send_as_op(newevent, reply)):
             return
 
         if duration:
-            duration = parse_time(duration)
-            endtime = time.time()+duration
-            heapq.heappush(self.config['dolater'],
-                    [endtime,
-                        {
-                            'channel': channel,
-                            'user': mask,
-                            'mode': mode,
-                        },
-                    ]
-                )
-            self.config.save()
-            self._set_later_timer()
+            self._set_timer(parse_time(duration), mask, channel, mode)
 
     @require_channel
     def unquiet(self, event, match):
@@ -806,7 +833,7 @@ class IRCAdmin(CommandPluginSuperclass):
         duration = groupdict['duration']
         channel = event.channel
         
-        self._do_modederequest('q', event, nick, duration, channel)
+        self._do_modederequest('q', event.reply, nick, duration, channel)
 
     @require_channel
     def unban(self, event, match):
@@ -815,34 +842,22 @@ class IRCAdmin(CommandPluginSuperclass):
         duration = groupdict['duration']
         channel = event.channel
         
-        self._do_modederequest('b', event, nick, duration, channel)
+        self._do_modederequest('b', event.reply, nick, duration, channel)
 
     @defer.inlineCallbacks
-    def _do_modederequest(self, mode, event, nick, duration, channel):
+    def _do_modederequest(self, mode, reply, nick, duration, channel):
         try:
             mask = (yield self._nick_to_hostmask(nick))
         except ircutil.NoSuchNick:
-            event.reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
+            reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
             return
         except ircutil.WhoisTimedout:
-            event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
+            reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
             return
 
         if duration:
-            duration = parse_time(duration)
-            endtime = time.time()+duration
-            heapq.heappush(self.config['dolater'],
-                    [endtime,
-                        {
-                            'channel': channel,
-                            'user': mask,
-                            'mode': mode,
-                        },
-                    ]
-                )
-            self.config.save()
-            self._set_later_timer()
-            event.reply("It shall be done")
+            self._set_timer(parse_time(duration), mask, channel, mode)
+            reply("It shall be done")
             return
 
         newevent = Event("irc.do_mode",
@@ -852,7 +867,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 user=mask,
                 )
         log.msg("-%s for %s in %s" % (mode, mask, channel))
-        self._send_as_op(newevent, event.reply)
+        self._send_as_op(newevent, reply)
 
 
 class IRCTopic(CommandPluginSuperclass):
