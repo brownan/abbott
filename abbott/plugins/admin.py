@@ -850,6 +850,8 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def ban(self, event, match):
         groupdict = match.groupdict()
+        # nick here could be a nick, a hostmask (with possible wildcards), or
+        # an extban
         nick = groupdict['nick']
         duration = groupdict['duration']
         channel = event.channel
@@ -857,14 +859,21 @@ class IRCAdmin(CommandPluginSuperclass):
 
         yield self._do_moderequest('b', event.reply, nick, duration, channel)
 
-        # nick could also be a hostmask or extban. Do a simple check to see if
-        # it looks like a nick
-        if "@" not in nick and "!" not in nick and "$" not in nick:
+        def do_kick(nick):
             self._send_as_op(Event("irc.do_kick",
                 channel=channel,
                 user=nick,
                 reason=reason or ("Requested by " + event.user.split("!")[0]),
                 ))
+        if "@" in nick and "!" in nick and not "$" in nick:
+            # A mask was given. Kick if the nick section doesn't have any
+            # wildcards
+            nick = nick.split("!")[0]
+            if "*" not in nick:
+                do_kick(nick)
+        elif "@" not in nick and "!" not in nick and "$" not in nick:
+            # Just a nick was given.
+            do_kick(nick)
 
 
     @defer.inlineCallbacks

@@ -110,10 +110,10 @@ class IRCWhois(CommandPluginSuperclass):
             d.errback(WhoisTimedout("No whois response from server"))
             self.pendingwhoises[nick].remove(d)
         timer = reactor.callLater(10, timeout)
-        def success(info):
+        def canceltimer(info):
             timer.cancel()
             return info
-        d.addCallback(success)
+        d.addBoth(canceltimer)
 
         return d
 
