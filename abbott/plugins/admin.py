@@ -518,6 +518,28 @@ class IRCAdmin(CommandPluginSuperclass):
                 )
         self.config.save()
         
+    def on_event_irc_on_mode_change(self, event):
+        if event.set == False:
+            mode = event.mode
+            user = event.arg
+            channel = event.channel
+
+            # Cancel any pending timers for this
+            try:
+                timer = self.later_timers.pop((user, channel, mode))
+            except KeyError:
+                pass
+            else:
+                timer.cancel()
+
+                # Also filter out the persistent config entry
+                self.config['laters'] = [item for item in self.config['laters']
+                        if not (item[1] == user and
+                               item[2] == channel and
+                               item[3] == mode
+                               )]
+                self.config.save()
+
 
     def stop(self):
         super(IRCAdmin, self).stop()
@@ -530,6 +552,8 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self.started = True
         self._set_all_timers()
+
+        self.listen_for_event("irc.on_mode_change")
 
         # kick command
         self.install_command(
