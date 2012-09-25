@@ -225,6 +225,21 @@ class IRCBot(irc.IRCClient):
         """
         irc.IRCClient.mode(self, channel, set, modes, limit, user, mask)
 
+    def kick(self, channel, user, reason=None):
+        """Overrides the twisted kick method. If we support REMOVE according to
+        the config, use that.
+
+        """
+        if self.factory.config.get("remove", False):
+            if channel[0] not in irc.CHANNEL_PREFIXES:
+                channel = '#' + channel
+            if reason:
+                self.sendLine("REMOVE %s %s :%s" % (channel, user, reason))
+            else:
+                self.sendLine("REMOVE %s %s" % (channel, user))
+        else:
+            irc.IRCClient.kick(self, channel, user, reason)
+
 
 class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
     """Implements a bot plugin and a twisted protocol client factory.
@@ -357,11 +372,22 @@ class IRCController(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="nick",
-                argmatch=r"(?P<newnick>[\w-]+)",
+                argmatch=r"(?P<newnick>[\w-]+)$",
                 permission="irc.control",
                 callback=self.nickchange,
                 cmdusage="<new nick>",
                 helptext="Changes my nickname",
+                )
+
+        self.install_command(
+                cmdname="quote",
+                argmatch=r"(?P<line>.+)$",
+                permission="irc.quote",
+                cmdusage="<line>",
+                helptext="Sends a raw line to the IRC server",
+                callback=lambda event,match:
+                        self.transport.send_event(Event("irc.do_raw",
+                            line=match.groupdict()['line'].strip())),
                 )
 
     def join(self, event, match):
