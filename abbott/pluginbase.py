@@ -169,10 +169,10 @@ I'll create a new one for you now""")
             with open(plugin_config_path, "w") as out:
                 json.dump(old_config, out, indent=4)
 
-        if plugin_name in self.config['plugin_config']:
+        if "plugin_config" in self.config and plugin_name in self.config['plugin_config']:
             del self.config['plugin_config'][plugin_name]
             self.save()
-        if not self.config['plugin_config']:
+        if "plugin_config" in self.config and not self.config['plugin_config']:
             del self.config['plugin_config']
             self.save()
 

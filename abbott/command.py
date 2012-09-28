@@ -368,7 +368,7 @@ class CommandPluginSuperclass(BotPlugin):
         message = event.message
 
         nickprefix = nick + ":"
-        globalprefix = self.__globalprefix.strip()
+        globalprefix = self.__globalprefix.strip() if self.__globalprefix else None
         if message.startswith(nickprefix):
             message = message[len(nickprefix):].strip()
         elif globalprefix and message.startswith(globalprefix):
