@@ -81,8 +81,13 @@ class Transport(object):
         for callback_name, callback_obj_set in self._event_listeners.items():
             callback_match = callback_name.replace("*", "[^.]+") + "$"
             if re.match(callback_match, event.eventtype):
+                # create a new set since the set may mutate while we iterate over it
                 for callback_obj in set(callback_obj_set):
-                    callback_obj.received_event(event)
+                    # Do a check to see if it's still in the original set. If
+                    # it *has* been removed (by an earlier callback, for
+                    # example), then don't call it
+                    if callback_obj in callback_obj_set:
+                        callback_obj.received_event(event)
 
     def install_middleware(self, matchstr, obj_to_notify):
         self._middleware_listeners[matchstr].add(obj_to_notify)
