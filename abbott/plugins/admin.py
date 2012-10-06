@@ -406,10 +406,8 @@ def parse_time(timestr):
     return duration
 
 class IRCAdmin(CommandPluginSuperclass):
-    """Provides a command interface to IRC operator tasks. Uses one of the
-    above chanserv plugins as an interface to do the tasks. Since the bot must
-    aquire OP itself for some operations like kick, this plugin relies on the
-    above OpSelf plugin to function.
+    """Provides a command interface to IRC operator tasks. Uses the above
+    opprovider plugin as an interface to acquire op and do op related things.
 
     """
 
@@ -712,7 +710,7 @@ class IRCAdmin(CommandPluginSuperclass):
     @require_channel
     def kick(self, event, match):
         """A user has issued the kick command. Our job here is to acquire OP
-        for this channel and set a callback to issue a kick event
+        for this channel and issue a kick event
 
         """
         groupdict = match.groupdict()
