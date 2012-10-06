@@ -3,6 +3,7 @@ import json
 import UserDict
 import os
 import os.path
+import sys
 
 from twisted.internet import defer
 
@@ -16,7 +17,7 @@ class PluginConfig(UserDict.UserDict):
         """Initialize a config from a json file."""
         self._jsonfile = jsonfile
         with open(jsonfile, 'r') as inp:
-            self.data= json.load(inp)
+            self.data = json.load(inp)
 
     def save(self):
         with open(self._jsonfile+"~", 'w') as out:
@@ -38,6 +39,12 @@ class PluginBoss(object):
         self._filename = os.path.join(config, "config.json")
 
         self.loaded_plugins = {}
+
+        if not os.path.exists(self._configdir):
+            os.mkdir(self._configdir)
+        elif not os.path.isdir(self._configdir):
+            print("The config parameter should be a directory. Please make the necessary adjustments")
+            sys.exit(1)
         
         try:
             self._load()
@@ -91,8 +98,15 @@ I'll create a new one for you now""")
                         'irc.IRCBotPlugin',
                         'irc.IRCController',
                         'ircutil.ReplyInserter',
+                        # whois and names probably aren't necessary unless
+                        # you're also running the ircadmin plugins, but just
+                        # in case, it can't hurt.
+                        'ircutil.IRCWhois',
+                        'ircutil.Names',
                         'auth.Auth',
                         'plugincontroller.PluginController',
+                        'corecontrol.CoreControl',
+                        'corecontrol.Help',
                         ],
                     },
                 'plugin_config': {
@@ -111,6 +125,9 @@ I'll create a new one for you now""")
                                     ]
                             },
                         },
+                    },
+                'command': {
+                    "prefix": None,
                     },
                 }
         self.save()

@@ -44,14 +44,14 @@ class IRCWhois(CommandPluginSuperclass):
 
         self.listen_for_event("irc.on_unknown")
 
-        self.install_command(
-                cmdname="whois",
-                argmatch=r"(?P<nick>[^ ]+)",
-                callback=self.do_whois,
-                cmdusage="<nick>",
-                helptext="Does a whois and prints the results. This command is meant for debugging.",
-                permission="irc.whois",
-                )
+        #self.install_command(
+        #        cmdname="whois",
+        #        argmatch=r"(?P<nick>[^ ]+)",
+        #        callback=self.do_whois,
+        #        cmdusage="<nick>",
+        #        helptext="Does a whois and prints the results. This command is meant for debugging.",
+        #        permission="irc.whois",
+        #        )
 
         # nick of the current whois that is coming in on the wire right this
         # moment
@@ -142,14 +142,14 @@ class Names(CommandPluginSuperclass):
 
         self.listen_for_event("irc.on_unknown")
 
-        self.install_command(
-                cmdname="names",
-                argmatch=r"(?P<channel>\S+)?$",
-                cmdusage="[channel]",
-                callback=self.do_names,
-                helptext="Does an IRC NAMES command and replies with the result",
-                permission="irc.names",
-                )
+        #self.install_command(
+        #        cmdname="names",
+        #        argmatch=r"(?P<channel>\S+)?$",
+        #        cmdusage="[channel]",
+        #        callback=self.do_names,
+        #        helptext="Does an IRC NAMES command and replies with the result",
+        #        permission="irc.names",
+        #        )
 
         self.currentinfo = []
         self.pending = defaultdict(set)
