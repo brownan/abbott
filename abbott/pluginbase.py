@@ -101,6 +101,8 @@ I'll create a new one for you now""")
                         'port': port,
                         'nick': nick,
                         'channels': [channel],
+                        # REMOVE is supported on freenode. I don't know about any others.
+                        'remove': "freenode" in server,
                         },
                     'auth.Auth': {
                         'perms': {
@@ -143,7 +145,11 @@ I'll create a new one for you now""")
         pluginclass = getattr(module, classname)
         
         plugin = pluginclass(plugin_name, self._transport, self)
-        plugin.start()
+        try:
+            plugin.start()
+        except Exception:
+            self._transport.unhook_plugin(plugin)
+            raise
 
         self.loaded_plugins[plugin_name] = plugin
 

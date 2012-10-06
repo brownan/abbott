@@ -291,3 +291,4 @@ class ReplyInserter(CommandPluginSuperclass):
             self.transport.send_event(newevent)
         event.reply = reply
         return event
+
