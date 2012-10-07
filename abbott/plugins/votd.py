@@ -73,6 +73,8 @@ class VoiceOfTheDay(CommandPluginSuperclass):
     def start(self):
         super(VoiceOfTheDay, self).start()
 
+        self.listen_for_event("irc.on_nick_change")
+
         votdgroup = self.install_cmdgroup(
                 grpname="votd",
                 permission="vott.configure",
@@ -358,4 +360,12 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         if event.channel == self.config["channel"]:
             nick = event.user.split("!")[0]
             self.config["counter"][nick] += 1
+            self.config.save()
+
+    def on_event_irc_on_nick_change(self, event):
+        oldnick = event.oldnick
+        newnick = event.newnick
+
+        if self.config["currentvoice"] and self.config["currentvoice"] == oldnick:
+            self.config["currentvoice"] = newnick
             self.config.save()
