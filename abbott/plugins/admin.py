@@ -886,7 +886,10 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             mask = (yield self._nick_to_hostmask(nick))
         except ircutil.NoSuchNick:
-            reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
+            reply("There is no user by that nick on the network. Try {0}!*@* to {1} anyone with that nick, or specify your own hostmask.".format(
+                nick,
+                {"q":"quiet","b":"ban"}.get(mode, "apply to"),
+                ))
             return
         except ircutil.WhoisTimedout:
             reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
