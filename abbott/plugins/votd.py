@@ -106,6 +106,15 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 helptext="Sets which hour the drawing will happen, in the current locale",
                 )
 
+        self.install_command(
+                cmdname="transfer",
+                cmdusage="<nick>",
+                argmatch="(?P<nick>[^ ]+)$",
+                callback=self.transfer,
+                helptext="if you are the VOTD, transfer it to another",
+                permission=None,
+                )
+
         # Don't forget!
         self._set_timer()
         self.started = True
@@ -369,3 +378,54 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         if self.config["currentvoice"] and self.config["currentvoice"] == oldnick:
             self.config["currentvoice"] = newnick
             self.config.save()
+
+    @defer.inlineCallbacks
+    def transfer(self, event, match):
+        target = match.groupdict()['nick']
+        channel = self.config['channel']
+        if channel != event.channel:
+            event.reply("I'm not doing votd in this channel. This command only works in " + channel)
+            return
+
+        requestor = event.user.split("!")[0]
+        if self.config["currentvoice"] != requestor:
+            event.reply("You are not the VOTD. Get out of here, you!")
+            return
+
+        names = (yield self.transport.issue_request("irc.names", channel))
+        if "+"+requestor not in names:
+            event.reply("sorry, you seem to have lost votd. maybe next time.")
+            return
+
+        if "+"+target in names:
+            event.reply("{0} already has voice".format(target))
+            return
+
+        if "@"+target in names:
+            event.reply("no can do")
+            return
+
+        if target not in names:
+            event.reply("who?")
+            return
+
+        event.reply("okay...")
+
+        e = Event("irc.do_mode",
+                channel=channel,
+                set=False,
+                modes="v",
+                user=requestor,
+                )
+        if not (yield self._send_as_op(e)):
+            log.msg("Error while un-voicing previous voice. Bailing")
+            return
+        e = Event("irc.do_mode",
+                channel=channel,
+                set=True,
+                modes="v",
+                user=target,
+                )
+        self._send_as_op(e)
+        self.config["currentvoice"] = target
+        self.conifg.save()
