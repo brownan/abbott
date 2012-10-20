@@ -144,12 +144,8 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         # devoiced at the next drawing
         self.config['currentvoice'] = self.config.get("currentvoice", None)
 
-        # Who had voice on the last drawing. Is ineligible for the next
-        # drawing.
-        self.config['lastvoice'] = self.config.get("lastvoice", None)
-
-        # The time the last drawing occurred.
-        self.config['lastdrawing'] = self.config.get('lastdrawing', None)
+        # The multipliers get multiplied by vote totals before the drawing
+        self.config['multipliers'] = defaultdict(lambda: 1, self.config.get("multipliers", {}))
 
         # reset the timer, in case the hour in the config was changed manually
         if self.started:
@@ -272,16 +268,17 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
 
         counter = self.config["counter"]
-        self.config['counter'] = defaultdict(int)
+        self.config['counter'] = defaultdict(int, counter)
+        for i, c in self.config['counter'].iteritems():
+            self.config['counter'][i] = c // 2
 
         # don't count the user that had voice just now
-        if currentvoice in counter:
-            del counter[currentvoice]
-
-        # or the time before
-        lastvoice = self.config["lastvoice"]
-        if lastvoice and lastvoice in counter:
-            del counter[lastvoice]
+        try:
+            if currentvoice in counter:
+                del counter[currentvoice]
+                del self.config['counter'][currentvoice]
+        except KeyError:
+            pass
 
         # don't count any user that isn't actually here
         names = set(
@@ -293,15 +290,14 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             if contestant not in names:
                 del counter[contestant]
 
-        self.config['lastvoice'] = currentvoice
         self.config['currentvoice'] = None
 
         entries = []
         numspeakers = 0
-        total = 0
         for speaker, count in counter.iteritems():
             numspeakers += 1
-            total += count
+            count *= self.config['multipliers'][speaker]
+            count = int(count)
             entries.extend([speaker] * count)
 
         if not counter:
@@ -312,21 +308,18 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         say("Ready everyone? It's time to choose a new Voice of the Day!")
         yield delay(3)
 
-        lastdrawing = self.config['lastdrawing']
-        #if lastdrawing:
-        #    say("There have been {0} speakers, totaling {1} lines of chat since the last drawing {2}".format(
-        #        numspeakers,
-        #        total,
-        #        prettydate(
-        #            datetime.datetime.fromtimestamp(lastdrawing)
-        #            ),
-        #        ))
-        #    yield delay(2)
-        self.config['lastdrawing'] = time.time()
-
         winner = random.choice(entries)
         self.config['currentvoice'] = winner
+
+        # Adjust all the multipliers up
+        for i, m in self.config['multipliers'].iteritems():
+            self.config['multipliers'][i] = min(1.0, m*2)
+        # Reset the counter for the user that just won
+        del self.config['counter'][winner]
+        # Cut this person's multiplier down
+        self.config['multipliers'][winner] *= 0.05
         self.config.save()
+
         say("...aaaaand the winner is....")
         yield delay(1)
         say("{0}!".format(winner))
@@ -428,4 +421,4 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 )
         self._send_as_op(e)
         self.config["currentvoice"] = target
-        self.conifg.save()
+        self.config.save()
