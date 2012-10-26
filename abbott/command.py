@@ -143,8 +143,7 @@ class _CommandGroup(object):
         still match.
 
         permission, if given, is the permission required for a user to execute
-        this command. The special string "%c" is replaced by the channel name.
-        If not given, all users are allowed to execute this command.
+        this command. If not given, permission is taken from the command group.
 
         prefix is an additional prefix that may be given to have the bot
         recognize a command. For example, a "ban" command may want to specify a

@@ -18,6 +18,8 @@ Miscellaneous, useful plugins
 """
 
 class TempConverter(BotPlugin):
+    # A list of keywords that will cause no temperatures to be converted
+    blacklist = frozenset(["capacitor", "coulomb", "farad"])
     c_re = re.compile(ur"""
             # Make sure it's either at the beginning of a word, beginning of the
             # line, or at least not proceeded by an alphanumeric character
@@ -59,8 +61,11 @@ class TempConverter(BotPlugin):
         self.listen_for_event("irc.on_privmsg")
 
     def on_event_irc_on_privmsg(self, event):
-        c_matches = self.c_re.findall(event.message)
-        f_matches = self.f_re.findall(event.message)
+        for word in self.blacklist:
+            if word in event.message.lower():
+                return
+        c_matches = set(self.c_re.findall(event.message))
+        f_matches = set(self.f_re.findall(event.message))
 
         reply = partial(event.reply, direct=False, userprefix=False, notice=False)
 
