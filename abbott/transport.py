@@ -73,7 +73,13 @@ class Transport(object):
             callback_match = "[^. ]+".join(callback_parts) + "$"
             if re.match(callback_match, event.eventtype):
                 for callback_obj in set(callback_obj_set):
-                    event = callback_obj.received_middleware_event(event)
+                    try:
+                        event = callback_obj.received_middleware_event(event)
+                    except Exception, e:
+                        # We don't want one plugin's errors to prevent other
+                        # plugins from being called
+                        import traceback
+                        log.msg(traceback.format_exc())
                     if not event:
                         return
 
@@ -83,11 +89,17 @@ class Transport(object):
             if re.match(callback_match, event.eventtype):
                 # create a new set since the set may mutate while we iterate over it
                 for callback_obj in set(callback_obj_set):
-                    # Do a check to see if it's still in the original set. If
-                    # it *has* been removed (by an earlier callback, for
-                    # example), then don't call it
-                    if callback_obj in callback_obj_set:
-                        callback_obj.received_event(event)
+                    try:
+                        # Do a check to see if it's still in the original set. If
+                        # it *has* been removed (by an earlier callback, for
+                        # example), then don't call it
+                        if callback_obj in callback_obj_set:
+                            callback_obj.received_event(event)
+                    except Exception, e:
+                        # We don't want one plugin's errors to prevent other
+                        # plugins from being called.
+                        import traceback
+                        log.msg(traceback.format_exc())
 
     def install_middleware(self, matchstr, obj_to_notify):
         self._middleware_listeners[matchstr].add(obj_to_notify)
