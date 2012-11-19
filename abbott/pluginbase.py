@@ -285,3 +285,90 @@ class BotPlugin(object):
     def provides_request(self, name):
         self.transport.provides_request(name, self)
 
+class EventWatcher(object):
+    """This is a mixin for plugins that adds event watching features, which
+    eases the implementation of certain design patterns. This does all the
+    bookkeeping and keeps track of all the deferred and timer objects so that
+    callers don't have to.
+
+    To use it, call self.wait_for(), which will return a deferred object. For
+    increased usefulness, functions should be decorated with
+    defer.inlineCallbacks and you should yield the returned deferred. See docs
+    on wait_for() for options and more info.
+
+    Note that if you use functionality in this mixin, you should take care to
+    properly call super() for __init__(), stop() and received_event() if you
+    override those methods!
+
+    Also note that functions that yield to a wait_for() may never resume if the
+    plugin is stopped.
+
+    """
+    def __init__(self, plugin_name, transport, pluginboss):
+        super(EventWatcher, self).__init__(plugin_name, transport, pluginboss)
+
+        # Holds all timers so that we can cancel them on stop
+        self.__timers = set()
+
+        # Maps event names to sets of (event_match object, deferred object, timer object)
+        self.__watchers = defaultdict(set)
+
+    def stop(self):
+        for s in self.__timers:
+            s.cancel()
+        super(EventWatcher, self).stop()
+
+    def received_event(self, event):
+        super(EventWatcher, self).received_event(event)
+
+        toremove = []
+        for event_match, d, timer in self.__watchers[event.eventtype]:
+            for attr in dir(event_match):
+                if getattr(event_match, attr) != getattr(event, attr):
+                    break
+            else:
+                # we have a match
+                toremove.append((event_match, d, timer))
+                if timer:
+                    timer.cancel()
+                d.callback(event)
+        for item in toremove:
+            self.__watchers.remove(item)
+
+    def wait_for(self, event_match=None, timeout=None):
+        """This method returns a twisted deferred that fires when an event is
+        received, or when the given timeout expires, whichever comes first.
+
+        event_match should be an Event object. The parameters that are given on
+        event_match must equal the corresponding parameters on the incoming
+        event. That is considered a match.
+
+        It is the caller's responsibility to make sure the plugin has a hook in
+        place to catch any given event types
+
+        """
+        if not event_match and not timeout:
+            return defer.succeed(None)
+        elif not event_match:
+            # just a timeout
+            d = defer.Deferred()
+            def timesup():
+                self.__timers.remove(timer)
+                d.callback(None)
+            timer = reactor.callLater(timeout, timesup)
+            self.__timers.add(timer)
+
+        else:
+
+            # A timeout and an event watch
+            d = defer.Deferred()
+            if timeout:
+                def timesup():
+                    self.__timers.remove(timer)
+                    self.__watchers[event_match.eventtype].remove((event_match, d, timer))
+                    d.callback(None)
+                timer = reactor.callLater(timeout, timesup)
+                self.__timers.add(timer)
+            else:
+                timer = None
+            self.__watchers[event_match.eventtype].remove((event_match, d, timer))
