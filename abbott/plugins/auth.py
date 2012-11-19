@@ -358,8 +358,6 @@ class Auth(command.CommandPluginSuperclass):
                 event.reply("I don't know who you are")
             msgstr = "you have"
 
-        perms.extend(self.config['defaultperms'])
-
         perms_map = defaultdict(set)
         for perm_chan, perm in perms:
             perms_map[perm_chan].add(perm)
