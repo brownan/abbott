@@ -145,7 +145,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         self.config['currentvoice'] = self.config.get("currentvoice", None)
 
         # The multipliers get multiplied by vote totals before the drawing
-        self.config['multipliers'] = defaultdict(lambda: 1, self.config.get("multipliers", {}))
+        self.config['multipliers'] = defaultdict(lambda: 0.01, self.config.get("multipliers", {}))
 
         # reset the timer, in case the hour in the config was changed manually
         if self.started:
@@ -267,24 +267,31 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
 
 
+        # Take a copy of the counters and use that for the rest of the method
         counter = self.config["counter"]
         self.config['counter'] = defaultdict(int, counter)
-        for i, c in self.config['counter'].iteritems():
-            self.config['counter'][i] = c // 2
+
+        # Half the counter for everyone for next time. If an entry goes to 0,
+        # remove it
+        for i, c in self.config['counter'].items():
+            if c <= 1:
+                del self.config['counter'][i]
+                if i in self.config['multipliers']:
+                    del self.config['multipliers'][i]
+            else:
+                self.config['counter'][i] = c // 2
 
         # don't count the user that had voice just now
         try:
             if currentvoice in counter:
                 del counter[currentvoice]
-                del self.config['counter'][currentvoice]
         except KeyError:
             pass
 
-        # don't count any user that isn't actually here
+        # don't count any user that isn't actually here, and users that already
+        # have voice or op
         names = set(
-                (x[1:] if x.startswith("@") or x.startswith("+")
-                    else x)
-                for x in names
+                x for x in names if not x.startswith("@") and not x.startswith("+")
                 )
         for contestant in counter.keys():
             if contestant not in names:
@@ -293,9 +300,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         self.config['currentvoice'] = None
 
         entries = []
-        numspeakers = 0
         for speaker, count in counter.iteritems():
-            numspeakers += 1
             count *= self.config['multipliers'][speaker]
             count = int(count)
             entries.extend([speaker] * count)
@@ -312,12 +317,18 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         self.config['currentvoice'] = winner
 
         # Adjust all the multipliers up
-        for i, m in self.config['multipliers'].iteritems():
-            self.config['multipliers'][i] = min(1.0, m*2)
+        for i, m in self.config['multipliers'].items():
+            # (except the winner)
+            if m != winner:
+                self.config['multipliers'][i] = m*1.5
+            # Cap mulitpliers at 1.0
+            if self.config['multipliers'][i] >= 1.0:
+                self.config['multipliers'][i] = 1.0
         # Reset the counter for the user that just won
-        del self.config['counter'][winner]
+        self.config['counter'][winner] = 0
         # Cut this person's multiplier down
-        self.config['multipliers'][winner] *= 0.05
+        self.config['multipliers'][winner] *= 0.01
+
         self.config.save()
 
         say("...aaaaand the winner is....")
@@ -387,7 +398,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         names = (yield self.transport.issue_request("irc.names", channel))
         if "+"+requestor not in names:
-            event.reply("sorry, you seem to have lost votd. maybe next time.")
+            event.reply("Hey, where'd your hat go?")
             return
 
         if "+"+target in names:
