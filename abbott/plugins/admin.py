@@ -611,7 +611,7 @@ class IRCAdmin(CommandPluginSuperclass):
         # Quiet commands
         self.install_command(
                 cmdname="quiet",
-                cmdmatch="quiet|QUIET",
+                cmdmatch="quiet|QUIET|mute",
                 cmdusage="<nick or hostmask> [for <duration>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0}+)?$".format(duration_match),
                 prefix=".",
@@ -623,7 +623,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="unquiet",
-                cmdmatch="unquiet|UNQUIET",
+                cmdmatch="unquiet|UNQUIET|unmute",
                 cmdusage="<nick or hostmask> [in <delay>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0}+)?$".format(duration_match),
                 prefix=".",
