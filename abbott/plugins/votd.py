@@ -1,3 +1,4 @@
+from __future__ import division
 import random
 from collections import defaultdict
 from functools import wraps
@@ -112,6 +113,15 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 argmatch="(?P<nick>[^ ]+)$",
                 callback=self.transfer,
                 helptext="if you are the VOTD, transfer it to another",
+                permission=None,
+                )
+
+        self.install_command(
+                cmdname="odds",
+                cmdusage="[nick]",
+                argmatch="(?P<user>[^ ]+)?$",
+                callback=self.check_prob,
+                helptext="Check your odds for winning voice of the day",
                 permission=None,
                 )
 
@@ -358,6 +368,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         self.lastspoken = time.time()
 
+        if getattr(event, "_was_odds", False):
+            return
+
         # This delay is a bit of a hack. If we do e.g. a configreload, and this
         # handler happens to run before the reload, this will save the config,
         # clobbering the new one. So here we wait a second to let the other
@@ -426,3 +439,29 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         self._send_as_op(e)
         self.config["currentvoice"] = target
         self.config.save()
+
+    def check_prob(self, event, match):
+        event._was_odds = True
+        user = match.groupdict()['user']
+        if not user:
+            user = event.user.split("!")[0]
+            msg = "Your chance of winning the next VOTD drawing is"
+            self.config["counter"][user] = max(self.config["counter"][user] - 1, 0)
+            self.config.save()
+        else:
+            msg = "{0}'s chance of winning the next VOTD is".format(user)
+
+        if user not in self.config['counter']:
+            return
+
+        all_counts = []
+        total = 0
+        for name, count in self.config['counter'].iteritems():
+            # compute the effective entry count
+            ecount = count * self.config['multipliers'][name]
+            ecount = int(ecount)
+            total += ecount
+
+        my_ecount = self.config['counter'][user] * self.config['multipliers'][user]
+        my_chances = int(my_ecount) / total * 100
+        event.reply("{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]))
