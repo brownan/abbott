@@ -55,7 +55,7 @@ class RunCommand(CommandPluginSuperclass):
                 )
 
         cmd = match.groupdict()['cmd']
-        log.msg("Running shell command '%s'" % cmd)
+        log.msg("Running shell command '%s'" % cmd.encode("UTF-8"))
         reactor.spawnProcess(
                 self.currentprocess,
                 "/bin/bash",
