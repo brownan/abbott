@@ -252,7 +252,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         names = (yield self.transport.issue_request("irc.names", channel))
 
         # de-voice the current voice if he/she still has it
-        currentvoice = self.config["currentvoice"]
+        currentvoice = self.config.get("currentvoice")
+        self.config['currentvoice'] = None
+
         if currentvoice:
             if "+"+currentvoice in (names):
                 e = Event("irc.do_mode",
@@ -281,13 +283,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             else:
                 self.config['counter'][i] = c // 2
 
-        # don't count the user that had voice just now
-        try:
-            if currentvoice in counter:
-                del counter[currentvoice]
-        except KeyError:
-            pass
-
         # don't count any user that isn't actually here, and users that already
         # have voice or op
         names = set(
@@ -296,8 +291,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         for contestant in counter.keys():
             if contestant not in names:
                 del counter[contestant]
-
-        self.config['currentvoice'] = None
 
         entries = []
         for speaker, count in counter.iteritems():
