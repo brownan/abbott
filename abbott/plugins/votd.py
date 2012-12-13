@@ -5,9 +5,12 @@ from collections import defaultdict
 from functools import wraps
 import datetime
 import time
+import bisect
 
 from twisted.internet import reactor, defer
 from twisted.python import log
+
+from .admin import OpError, OpTimedOut, NoOpMethod
 
 try:
     from pretty import date as prettydate
@@ -65,6 +68,43 @@ def require_channel(func):
         else:
             return func(self, event, match)
     return newfunc
+
+# http://code.activestate.com/recipes/577363-weighted-random-choice/
+def weighted_random_choice(seq, weight):
+    """Returns a random element from ``seq``. The probability for each element
+    ``elem`` in ``seq`` to be selected is weighted by ``weight(elem)``.
+
+    ``seq`` must be an iterable containing more than one element.
+
+    ``weight`` must be a callable accepting one argument, and returning a
+    non-negative number. If ``weight(elem)`` is zero, ``elem`` will not be
+    considered. 
+        
+    """ 
+    weights = 0
+    elems = [] 
+    for elem in seq:
+        w = weight(elem)     
+        try:
+            is_neg = w < 0
+        except TypeError:    
+            raise ValueError("Weight of element '%s' is not a number (%s)" %
+                             (elem, w))
+        if is_neg:
+            raise ValueError("Weight of element '%s' is negative (%s)" %
+                             (elem, w))
+        if w != 0:               
+            try:
+                weights += w
+            except TypeError:
+                raise ValueError("Weight of element '%s' is not a number "
+                                 "(%s)" % (elem, w))
+            elems.append((weights, elem))
+    if not elems:
+        raise ValueError("Empty sequence")
+    ix = bisect.bisect(elems, (random.uniform(0, weights), None))
+    return elems[ix][1]
+
 
 class VoiceOfTheDay(CommandPluginSuperclass):
     def __init__(self, *args):
@@ -178,8 +218,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 ecount = int(ecount)
                 self.config['chance'][name] = ecount
                 total += ecount
-            for name, ecount in self.config['chance'].items():
-                self.config['chance'][name] = ecount / total
+            if total:
+                for name, ecount in self.config['chance'].items():
+                    self.config['chance'][name] = ecount / total
             old_save()
         self.config.save = add_probs_and_save
 
@@ -300,8 +341,16 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                         user=currentvoice,
                         )
                 if not (yield self._send_as_op(e)):
+                    say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
                     log.msg("Error while un-voicing previous voice. Bailing")
                     return
+        else:
+            # Gain OP here, if we didn't gain it from the previous voice.
+            try:
+                yield self.transport.issue_request("ircadmin.opself", channel)
+            except OpError:
+                say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
+                return
 
 
 
@@ -332,24 +381,22 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             if contestant not in names:
                 del counter[contestant]
 
-        # Create the entries list with the appropriate number of effective
-        # entries for each user
-        entries = []
-        for speaker, count in counter.iteritems():
-            count *= self.config['multipliers'][speaker] * self.config['scalefactor']
-            count = int(count)
-            entries.extend([speaker] * count)
-
-        if not counter:
+        try:
+            winner = weighted_random_choice(counter.iterkeys(),
+                    lambda user: int(
+                        counter[user] *
+                        self.config['multipliers'][user] *
+                        self.config['scalefactor']
+                        )
+                    )
+        except ValueError:
             say("I was going to do the voice of the day, but nobody seems to be eligible =(")
             self.config.save()
             return
 
+
         say("Ready everyone? It's time to choose a new Voice of the Day!")
         yield delay(3)
-
-        winner = random.choice(entries)
-        self.config['currentvoice'] = winner
 
         # Adjust all the multipliers up
         for user, m in self.config['multipliers'].items():
@@ -372,6 +419,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             modes="v",
             user=winner,
             ))
+        self.config['currentvoice'] = winner
         yield delay(5)
         say("until next time...")
 
