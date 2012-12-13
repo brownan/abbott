@@ -315,7 +315,7 @@ class IRCOpProvider(CommandPluginSuperclass):
             event.reply("Done. I'll hold op for %s seconds after I get it" % timeout)
             if timeoutevent:
                 timeoutevent.reset(timeout)
-            elif self.have_op[channel]:
+            elif self.have_op.get(channel):
                 self._set_op_timeout(channel)
 
     def set_op_mode(self, event, match):
