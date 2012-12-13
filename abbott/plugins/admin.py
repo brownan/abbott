@@ -588,7 +588,7 @@ class IRCAdmin(CommandPluginSuperclass):
         # voice commands
         self.install_command(
                 cmdname="voice",
-                cmdmatch="voice|VOICE",
+                cmdmatch="voice|VOICE|hat",
                 cmdusage="[nick]",
                 argmatch = "(?P<nick>[^ ]+)?$",
                 permission="irc.op.voice",
@@ -599,7 +599,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="devoice",
-                cmdmatch="devoice|DEVOICE",
+                cmdmatch="devoice|DEVOICE|dehat|unhat",
                 cmdusage="[nick]",
                 argmatch = "(?P<nick>[^ ]+)?$",
                 permission="irc.op.voice",
