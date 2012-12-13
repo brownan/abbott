@@ -1,3 +1,4 @@
+# encoding: UTF-8
 from __future__ import division
 import random
 from collections import defaultdict
@@ -138,6 +139,8 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         if self.timer:
             self.timer.cancel()
 
+        self.started = False
+
     def reload(self):
         super(VoiceOfTheDay, self).reload()
 
@@ -157,9 +160,28 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         # The multipliers get multiplied by vote totals before the drawing
         self.config['multipliers'] = defaultdict(lambda: 0.01, self.config.get("multipliers", {}))
 
+        self.config['scalefactor'] = self.config.get("scalefactor", 100)
+
         # reset the timer, in case the hour in the config was changed manually
         if self.started:
             self._set_timer()
+
+        old_save = self.config.save
+        def add_probs_and_save():
+            # Add the probability to the saved config for convenience of
+            # external apps that may want to read this data but not have
+            # to calculate the odds themselves
+            total = 0
+            self.config['chance'] = {}
+            for name, count in self.config['counter'].iteritems():
+                ecount = count * self.config['multipliers'][name] * self.config['scalefactor']
+                ecount = int(ecount)
+                self.config['chance'][name] = ecount
+                total += ecount
+            for name, ecount in self.config['chance'].items():
+                self.config['chance'][name] = ecount / total
+            old_save()
+        self.config.save = add_probs_and_save
 
     def _set_timer(self):
         if self.timer:
@@ -236,6 +258,10 @@ class VoiceOfTheDay(CommandPluginSuperclass):
     def _timer_up(self):
         self.timer = None
 
+        if not self.started:
+            # Maybe the plugin was unloaded?
+            return
+
         IDLE_TIME = 60*5
 
         now = time.time()
@@ -288,10 +314,14 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         for i, c in self.config['counter'].items():
             if c <= 1:
                 del self.config['counter'][i]
-                if i in self.config['multipliers']:
-                    del self.config['multipliers'][i]
             else:
                 self.config['counter'][i] = c // 2
+
+        # Prune out the multipliers dict. Users that don't have an entry in the
+        # counter dict are removed
+        for user in self.config['multipliers'].keys():
+            if user not in self.config['counter']:
+                del self.config['multipliers'][user]
 
         # don't count any user that isn't actually here, and users that already
         # have voice or op
@@ -302,9 +332,11 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             if contestant not in names:
                 del counter[contestant]
 
+        # Create the entries list with the appropriate number of effective
+        # entries for each user
         entries = []
         for speaker, count in counter.iteritems():
-            count *= self.config['multipliers'][speaker]
+            count *= self.config['multipliers'][speaker] * self.config['scalefactor']
             count = int(count)
             entries.extend([speaker] * count)
 
@@ -320,17 +352,12 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         self.config['currentvoice'] = winner
 
         # Adjust all the multipliers up
-        for i, m in self.config['multipliers'].items():
+        for user, m in self.config['multipliers'].items():
             # (except the winner)
-            if m != winner:
-                self.config['multipliers'][i] = m*1.5
-            # Cap mulitpliers at 1.0
-            if self.config['multipliers'][i] >= 1.0:
-                self.config['multipliers'][i] = 1.0
-        # Reset the counter for the user that just won
-        self.config['counter'][winner] = 0
-        # Cut this person's multiplier down
-        self.config['multipliers'][winner] *= 0.01
+            if user != winner:
+                self.config['multipliers'][user] = min(1.0, m*1.5)
+            else:
+                self.config['multipliers'][user] = m*0.01
 
         self.config.save()
 
@@ -449,7 +476,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             self.config["counter"][user] = max(self.config["counter"][user] - 1, 0)
             self.config.save()
         else:
-            msg = "{0}'s chance of winning the next VOTD is".format(user)
+            msg = u"{0}’s chance of winning the next VOTD is".format(user)
 
         if user not in self.config['counter']:
             return
@@ -458,10 +485,10 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         total = 0
         for name, count in self.config['counter'].iteritems():
             # compute the effective entry count
-            ecount = count * self.config['multipliers'][name]
+            ecount = count * self.config['multipliers'][name] * self.config['scalefactor']
             ecount = int(ecount)
             total += ecount
 
-        my_ecount = self.config['counter'][user] * self.config['multipliers'][user]
+        my_ecount = self.config['counter'][user] * self.config['multipliers'][user] * self.config['scalefactor']
         my_chances = int(my_ecount) / total * 100
-        event.reply("{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]))
+        event.reply(u"{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]))
