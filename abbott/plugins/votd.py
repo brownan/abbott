@@ -304,6 +304,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             return
 
         IDLE_TIME = 60*5
+        IDLE_TIME = self.config.get("idle_time", 60*5)
 
         now = time.time()
         if now - self.lastspoken >= IDLE_TIME:
