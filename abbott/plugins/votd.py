@@ -1,7 +1,7 @@
 # encoding: UTF-8
 from __future__ import division
 import random
-from collections import defaultdict
+from collections import defaultdict, deque
 from functools import wraps
 import datetime
 import time
@@ -110,6 +110,11 @@ class VoiceOfTheDay(CommandPluginSuperclass):
     def __init__(self, *args):
         self.started = False
         self.timer = None
+        
+        # Keeps track of the last x times that the !odds command was issued.
+        # Will only do so many in a minute to prevent spam
+        self.last_odds = deque(maxlen=4)
+
         super(VoiceOfTheDay, self).__init__(*args)
 
     def start(self):
@@ -519,6 +524,13 @@ class VoiceOfTheDay(CommandPluginSuperclass):
     def check_prob(self, event, match):
         event._was_odds = True
         user = match.groupdict()['user']
+
+        self.last_odds.append(time.time())
+        if len(self.last_odds) == self.last_odds.maxlen and time.time() - self.last_odds[0] < 60:
+            reply_opts = {"notice": True, "direct": True}
+        else:
+            reply_opts = {}
+
         if not user:
             user = event.user.split("!")[0]
             msg = "Your chance of winning the next VOTD drawing is"
@@ -540,4 +552,5 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         my_ecount = self.config['counter'][user] * self.config['multipliers'][user] * self.config['scalefactor']
         my_chances = int(my_ecount) / total * 100
-        event.reply(u"{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]))
+        event.reply(u"{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]),
+                **reply_opts)
