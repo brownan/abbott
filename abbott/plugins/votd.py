@@ -308,7 +308,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             # Maybe the plugin was unloaded?
             return
 
-        IDLE_TIME = 60*5
         IDLE_TIME = self.config.get("idle_time", 60*5)
 
         now = time.time()
@@ -447,7 +446,8 @@ class VoiceOfTheDay(CommandPluginSuperclass):
     def on_event_irc_on_privmsg(self, event):
         super(VoiceOfTheDay, self).on_event_irc_on_privmsg(event)
 
-        self.lastspoken = time.time()
+        if event.channel == self.config["channel"]:
+            self.lastspoken = time.time()
 
         if getattr(event, "_was_odds", False):
             return
