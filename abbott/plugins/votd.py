@@ -102,7 +102,8 @@ def weighted_random_choice(seq, weight):
             elems.append((weights, elem))
     if not elems:
         raise ValueError("Empty sequence")
-    ix = bisect.bisect(elems, (random.uniform(0, weights), None))
+    random_pos = random.uniform(0, weights)
+    ix = bisect.bisect(elems, (random_pos, None))
     return elems[ix][1]
 
 
@@ -399,8 +400,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             self.config.save()
             return
 
+        winner_chance = self.config['chance'][winner] * 100
 
-        say("Ready everyone? It's time to choose a new Voice of the Day!")
+        say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
         yield delay(3)
 
         # Adjust all the multipliers up
@@ -413,8 +415,25 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         self.config.save()
 
-        say("...aaaaand the winner is....")
-        yield delay(1)
+        say(u"{phrase} {0:.2f}%, today’s winner is...".format(
+                winner_chance,
+                phrase=
+                       (lambda sorted_chance:
+                           # Had the most odds with a >xx% lead over the runner up
+                           "In a landslide win with" if sorted_chance[-1] == winner_chance and winner_chance - sorted_chance[-2] > 5 else
+                           # Had the most odds with a <xx% lead
+                           "Narrowly beating the competition with" if sorted_chance[-1] == winner_chance else
+                           # Had the second most odds
+                           u"the underdog in today’s race with" if sorted_chance[-2] == winner_chance else
+                           # Special phrases for low odds
+                           "with the impossible odds of" if winner_chance<1 else
+                           "narrowly beating the odds with" if winner_chance < 5 else
+                           # catch all
+                           "coming in with"
+                           )(sorted(x*100 for x in self.config['chance'].itervalues()))
+                
+                ))
+        yield delay(2)
         say("{0}!".format(winner))
 
         yield delay(1)
