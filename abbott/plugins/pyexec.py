@@ -39,7 +39,7 @@ class PyPyTwistedSandboxProtocol(ProcessProtocol, object):
         # strings in blocks from the twisted reactor, we may not have a
         # complete request in one call to outReceived(). However, the pypy
         # unmarshaler doesn't always throw errors when it requests more data
-        # than is available, but rather silently returns the data is has. For
+        # than is available, but rather silently returns the data it has. For
         # example, to unmarshal a length 10000 string, it will call
         # self.__instream.read(10000), but if less than that much of the string
         # was given in that call, it doesn't notice and just returns the
@@ -48,7 +48,9 @@ class PyPyTwistedSandboxProtocol(ProcessProtocol, object):
         #
         # So, we modify the read() method of this stringio object here so that
         # it raises EOFError in the event that not enough stream is available
-        # to fulfill the request.
+        # to fulfill the request. That exception is caught in outReceived() and
+        # the data is saved for the next call, where the new data is appended
+        # and the marshal is restarted.
         oldread = self.__instream.read
         def newread(n):
             pos = self.__instream.tell()
@@ -71,7 +73,7 @@ class PyPyTwistedSandboxProtocol(ProcessProtocol, object):
     @defer.inlineCallbacks
     def outReceived(self, text):
         self.__instream.write(text)
-        self.__instream.seek(0,2)
+        #self.__instream.seek(0,2)
         #log.msg("Received {0} bytes of input (total {1}). Unmarshalling...".format(len(text), self.__instream.tell()))
         self.__instream.seek(0)
         try:
@@ -397,7 +399,7 @@ class PyExec(CommandPluginSuperclass):
                     sandbox,
                     sandbox_binary,
                     [ "/usr/bin/python",
-                        #"--heapsize", str(5*1024*1024),
+                        "--heapsize", str(5*1024*1024),
                         "-S",
                         "-i",
                         "/startup.py",
