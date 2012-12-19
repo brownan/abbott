@@ -6,6 +6,7 @@ from functools import wraps
 import datetime
 import time
 import bisect
+import traceback
 
 from twisted.internet import reactor, defer
 from twisted.python import log
@@ -114,7 +115,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         
         # Keeps track of the last x times that the !odds command was issued.
         # Will only do so many in a minute to prevent spam
-        self.last_odds = deque(maxlen=4)
+        self.last_odds = deque(maxlen=3)
 
         super(VoiceOfTheDay, self).__init__(*args)
 
@@ -332,14 +333,14 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 message=msg,
                 ))
 
-        names = (yield self.transport.issue_request("irc.names", channel))
+        names = set((yield self.transport.issue_request("irc.names", channel)))
 
         # de-voice the current voice if he/she still has it
         currentvoice = self.config.get("currentvoice")
         self.config['currentvoice'] = None
 
         if currentvoice:
-            if "+"+currentvoice in (names):
+            if "+"+currentvoice in names:
                 e = Event("irc.do_mode",
                         channel=channel,
                         set=False,
@@ -350,13 +351,22 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                     say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
                     log.msg("Error while un-voicing previous voice. Bailing")
                     return
-        else:
-            # Gain OP here, if we didn't gain it from the previous voice.
-            try:
-                yield self.transport.issue_request("ircadmin.opself", channel)
-            except OpError:
-                say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
-                return
+                # edit the names set to reflect the current channel state. This
+                # is only really important later so the current voice is still
+                # technically eligible for the new drawing (although that
+                # should be unlikely)
+                names.remove("+"+currentvoice)
+                names.add(currentvoice)
+
+        # Gain OP here. This will be a no-op if op was granted in satisfying
+        # the do_mode call above, but there are two cases in which that may not
+        # happen (no curret voice or current voice no longer has voice)
+        try:
+            yield self.transport.issue_request("ircadmin.opself", channel)
+        except OpError, e:
+            log.msg(traceback.format_exc())
+            say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
+            return
 
 
 
@@ -364,7 +374,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         counter = self.config["counter"]
         self.config['counter'] = defaultdict(int, counter)
 
-        # Half the counter for everyone for next time. If an entry goes to 0,
+        # Halve the counter for everyone for next time. If an entry goes to 0,
         # remove it
         for i, c in self.config['counter'].items():
             if c <= 1:
@@ -379,9 +389,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 del self.config['multipliers'][user]
 
         # don't count any user that isn't actually here, and users that already
-        # have voice or op
+        # have voice or op for some other reason
         names = set(
-                x for x in names if not x.startswith("@") and not x.startswith("+")
+                x for x in names if not (x.startswith("@") or x.startswith("+"))
                 )
         for contestant in counter.keys():
             if contestant not in names:
@@ -415,10 +425,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         winner_chance = chances[winner]
 
 
-        say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
-        yield delay(3)
-
-        # Adjust all the multipliers up
+        # Adjust all the multipliers up, except for the winner
         for user, m in self.config['multipliers'].items():
             # (except the winner)
             if user != winner:
@@ -427,6 +434,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 self.config['multipliers'][user] = m*0.01
 
         self.config.save()
+
+        say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
+        yield delay(3)
 
         say(u"{phrase} {0:.2f}%, today’s winner is...".format(
                 winner_chance,
@@ -557,11 +567,11 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         event._was_odds = True
         user = match.groupdict()['user']
 
-        self.last_odds.append(time.time())
         if len(self.last_odds) == self.last_odds.maxlen and time.time() - self.last_odds[0] < 60:
             reply_opts = {"notice": True, "direct": True}
         else:
             reply_opts = {}
+        self.last_odds.append(time.time())
 
         if not user:
             user = event.user.split("!")[0]
