@@ -387,20 +387,33 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             if contestant not in names:
                 del counter[contestant]
 
+        effective_entries = dict(
+                    (user, int(
+                                counter[user] *
+                                self.config['multipliers'][user] *
+                                self.config['scalefactor']
+                              )
+                    ) for user in counter.iterkeys()
+                )
+
         try:
             winner = weighted_random_choice(counter.iterkeys(),
-                    lambda user: int(
-                        counter[user] *
-                        self.config['multipliers'][user] *
-                        self.config['scalefactor']
-                        )
+                    effective_entries.get
                     )
         except ValueError:
             say("I was going to do the voice of the day, but nobody seems to be eligible =(")
             self.config.save()
             return
 
-        winner_chance = self.config['chance'][winner] * 100
+        # The following are not used in calculations but for informational
+        # purposes and in the response messages
+        total_entries = sum(effective_entries.itervalues())
+        chances = dict(
+                (user, eentry/total_entries*100)
+                for user, eentry in effective_entries.iteritems()
+                )
+        winner_chance = chances[winner]
+
 
         say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
         yield delay(3)
@@ -430,7 +443,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                            "narrowly beating the odds with" if winner_chance < 5 else
                            # catch all
                            "coming in with"
-                           )(sorted(x*100 for x in self.config['chance'].itervalues()))
+                           )(sorted(chances.itervalues()))
                 
                 ))
         yield delay(2)
