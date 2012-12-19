@@ -372,8 +372,8 @@ class PyExec(CommandPluginSuperclass):
                          'lib-python': RealDir(os.path.join(pypy_root, "lib-python"),exclude=excludes),
                          'lib_pypy': RealDir(os.path.join(pypy_root, "lib_pypy"),exclude=excludes),
                          }),
-                     'root': Dir({
-                         'password.txt': File("just kidding!"),
+                     'etc': Dir({
+                         'passwd': File(random.choice(["just kidding!","nope","so close!","try again","you're kidding, right?","fooled you!"])),
                          }),
                      'proc': Dir({
                          'cpuinfo': RealFile("/proc/cpuinfo"),
