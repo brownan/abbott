@@ -468,7 +468,10 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             ))
         self.config['currentvoice'] = winner
         yield delay(5)
-        say("until next time...")
+        extra = self.config.get("extra", "until next time...").split("\n")
+        for l in extra:
+            say(l.format(winner=winner))
+            yield delay(2)
 
         self._set_timer()
         
