@@ -578,6 +578,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         if not user:
             user = event.user.split("!")[0]
+        if user.lower() == event.user.split("!")[0].lower():
             msg = "Your chance of winning the next VOTD drawing is"
             self.config["counter"][user] = max(self.config["counter"][user] - 1, 0)
             self.config.save()
