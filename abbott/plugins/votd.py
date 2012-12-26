@@ -209,6 +209,8 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         self.config['scalefactor'] = self.config.get("scalefactor", 100)
 
+        self.config['win_counter'] = defaultdict(int, self.config.get("win_counter", {}))
+
         # reset the timer, in case the hour in the config was changed manually
         if self.started:
             self._set_timer()
@@ -387,6 +389,10 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         for user in self.config['multipliers'].keys():
             if user not in self.config['counter']:
                 del self.config['multipliers'][user]
+        # And the win_counter dict
+        for user in self.config["win_counter"].keys():
+            if user not in self.config["counter"]:
+                del self.config["win_counter"][user]
 
         # don't count any user that isn't actually here, and users that already
         # have voice or op for some other reason
@@ -438,7 +444,10 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
         yield delay(3)
 
-        say(u"{phrase} {0:.2f}%, today’s winner is...".format(
+        # do this here because we use this value below
+        self.config["win_counter"][winner] += 1
+
+        say(u"{phrase} {0:.2f}%{otherphrase}".format(
                 winner_chance,
                 phrase=
                        (lambda sorted_chance:
@@ -450,11 +459,21 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                            u"the underdog in today’s race with" if sorted_chance[-2] == winner_chance else
                            # Special phrases for low odds
                            "with the impossible odds of" if winner_chance<1 else
-                           "narrowly beating the odds with" if winner_chance < 5 else
+                           "beating the odds with" if winner_chance < 5 else
                            # catch all
                            "coming in with"
-                           )(sorted(chances.itervalues()))
+                           )(sorted(chances.itervalues())),
                 
+                otherphrase=
+                        (lambda win_count, sorted_winners:
+                                u", today’s first—time winner is…" if win_count == 1 else
+                                u" and winning for the second time, today's hat goes to…" if win_count == 2 else
+                                u", today’s winner and three—time champion of voice is…" if win_count == 3 else
+                                u" and tied for number of all—time wins with {0}, todays hat goes to…".format(win_count) if win_count == sorted_winners[-1] == sorted_winners[-2] else
+                                u", presenting the winner and raining champion of voice with {0} all—time wins…".format(win_count) if win_count == sorted_winners[-1] else
+                                u", presenting the winner and runner—up in all—time wins with {0}…".format(win_count) if win_count == sorted_winners[-2] else
+                                u" and {0} total wins, today the hat goes to…".format(win_count)
+                        )(self.config["win_counter"][winner], sorted(self.config["win_counter"].itervalues())),
                 ))
         yield delay(2)
         say("{0}!".format(winner))
@@ -467,6 +486,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             user=winner,
             ))
         self.config['currentvoice'] = winner
+        self.config.save()
         yield delay(5)
         extra = self.config.get("extra", "until next time...").split("\n")
         for l in extra:
