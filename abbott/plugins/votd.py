@@ -389,9 +389,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         for user in self.config['multipliers'].keys():
             if user not in self.config['counter']:
                 del self.config['multipliers'][user]
-        # And the win_counter dict
-        for user in self.config["win_counter"].keys():
-            if user not in self.config["counter"]:
+        # And the win_counter dict, but only if the value is 0
+        for user, count in self.config["win_counter"].items():
+            if user not in self.config["counter"] and count == 0:
                 del self.config["win_counter"][user]
 
         # don't count any user that isn't actually here, and users that already
