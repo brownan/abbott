@@ -467,9 +467,9 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 otherphrase=
                         (lambda win_count, sorted_winners:
                                 u", today’s first—time winner is…" if win_count == 1 else
-                                u" and winning for the second time, today's hat goes to…" if win_count == 2 else
+                                u" and winning for the second time, today’s hat goes to…" if win_count == 2 else
                                 u", today’s winner and three—time champion of voice is…" if win_count == 3 else
-                                u" and tied for number of all—time wins with {0}, todays hat goes to…".format(win_count) if win_count == sorted_winners[-1] == sorted_winners[-2] else
+                                u" and tied for number of all—time wins with {0}, today’s hat goes to…".format(win_count) if win_count == sorted_winners[-1] == sorted_winners[-2] else
                                 u", presenting the winner and raining champion of voice with {0} all—time wins…".format(win_count) if win_count == sorted_winners[-1] else
                                 u", presenting the winner and runner—up in all—time wins with {0}…".format(win_count) if win_count == sorted_winners[-2] else
                                 u" and {0} total wins, today the hat goes to…".format(win_count)
