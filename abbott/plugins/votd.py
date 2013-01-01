@@ -340,6 +340,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         names = set((yield self.transport.issue_request("irc.names", channel)))
 
         # de-voice the current voice if he/she still has it
+        currentvoice = self.config.get("currentvoice")
         if currentvoice:
             if "+"+currentvoice in names:
                 e = Event("irc.do_mode",
@@ -359,7 +360,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 names.remove("+"+currentvoice)
                 names.add(currentvoice)
 
-            currentvoice = self.config.get("currentvoice")
             self.config['currentvoice'] = None
 
 
