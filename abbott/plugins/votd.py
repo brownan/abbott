@@ -296,9 +296,11 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         try:
             yield self.transport.issue_request("ircadmin.opself", event.channel)
         except OpTimedOut:
+            log.msg("Op request timed out")
             reply("I could not become OP. Check the error log, configuration, etc.")
             defer.returnValue(False)
         except NoOpMethod:
+            log.msg("No op methods configured!")
             reply("I can't do that in %s, I don't have OP and have no way to acquire it!" % event.channel)
             defer.returnValue(False)
         else:
@@ -338,9 +340,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         names = set((yield self.transport.issue_request("irc.names", channel)))
 
         # de-voice the current voice if he/she still has it
-        currentvoice = self.config.get("currentvoice")
-        self.config['currentvoice'] = None
-
         if currentvoice:
             if "+"+currentvoice in names:
                 e = Event("irc.do_mode",
@@ -359,6 +358,10 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 # should be unlikely)
                 names.remove("+"+currentvoice)
                 names.add(currentvoice)
+
+            currentvoice = self.config.get("currentvoice")
+            self.config['currentvoice'] = None
+
 
         # Gain OP here. This will be a no-op if op was granted in satisfying
         # the do_mode call above, but there are two cases in which that may not
