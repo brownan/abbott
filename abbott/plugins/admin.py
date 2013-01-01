@@ -224,7 +224,7 @@ class IRCOpProvider(CommandPluginSuperclass):
                 self.waiting_for_op[channel].remove((d, timeout))
                 # call the errback
                 d.errback(OpTimedOut("Op request timed out"))
-            timeout = reactor.callLater(20, timedout)
+            timeout = reactor.callLater(30, timedout)
 
             # This puts the deferred in the appropriate place where it'll be
             # called when we get op.
