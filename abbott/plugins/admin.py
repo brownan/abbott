@@ -451,23 +451,31 @@ class IRCAdmin(CommandPluginSuperclass):
         channel = event.channel
         reason = groupdict['reason']
 
-        yield self._do_moderequest('b', event.reply, nick, duration, channel)
-
-        def do_kick(nick):
-            self.transport.issue_request("ircop.kick",
-                channel=channel,
-                target=nick,
-                reason=reason or ("Requested by " + event.user.split("!")[0]),
-                )
+        do_kick = False
         if "@" in nick and "!" in nick and not "$" in nick:
             # A mask was given. Kick if the nick section doesn't have any
             # wildcards
             nick = nick.split("!")[0]
             if "*" not in nick:
-                do_kick(nick)
+                do_kick = True
         elif "@" not in nick and "!" not in nick and "$" not in nick:
             # Just a nick was given.
-            do_kick(nick)
+            do_kick = True
+
+        # We have to issue the kick before the mode request. The kick will
+        # acquire op, and the mode request will deop in the same request as the
+        # ban. If it were the other way around, it would get op, issue the ban
+        # and deop, then op to do the kick.
+        if do_kick:
+            log.msg("issuing kick")
+            yield self.transport.issue_request("ircop.kick",
+                    channel=channel,
+                    target=nick,
+                    reason=reason or ("Requested by " + event.user.split("!")[0]),
+                    )
+
+        log.msg("issuing ban")
+        yield self._do_moderequest('b', event.reply, nick, duration, channel)
 
 
     @defer.inlineCallbacks

@@ -7,7 +7,7 @@ from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass
 from ..transport import Event
-from ..pluginbase import BotPlugin, EventWatcher
+from ..pluginbase import BotPlugin, EventWatcher, non_reentrant
 
 """
 
@@ -385,6 +385,7 @@ class ChanMode(EventWatcher, BotPlugin):
 
             defer.returnValue( self.mode[channel] )
 
+    @non_reentrant(channel=1)
     @defer.inlineCallbacks
     def _get_mode(self, channel):
         log.msg("Sending a request for the mode of channel {0}".format(channel))

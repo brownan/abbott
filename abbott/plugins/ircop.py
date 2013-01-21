@@ -7,7 +7,7 @@ from twisted.python import log
 from twisted.internet import defer
 
 from ..transport import Event
-from ..pluginbase import BotPlugin, EventWatcher
+from ..pluginbase import BotPlugin, EventWatcher, non_reentrant
 
 """
 IRC OP-related plugins. This is meant to replace the old admin.* plugins with a
@@ -144,14 +144,6 @@ class OpProvider(EventWatcher, BotPlugin):
         # a tuple: (mode, argument), where argument may be None.
         self.mode_buffer = defaultdict(set)
 
-        # Maps channel names to a boolean var indicating whether we have an
-        # outstanding OP request pending on this channel or not. If an
-        # operation needs OP, it should check this var. If it's false, put in
-        # an op request and then wait. If it's true, just wait. Waiters should
-        # also set an error timeout (20-30 seconds) in case the op request
-        # errors and is not fulfilled.
-        self.op_pending = defaultdict(bool)
-
         for operation in self.CONNECTOR_REQS | self.OTHER_REQS:
             self.provides_request("ircop.{0}".format(operation))
 
@@ -164,25 +156,23 @@ class OpProvider(EventWatcher, BotPlugin):
         # Keeps a mapping of channels to a dict mapping operations to connectors.
         self.config["opmethod"] = defaultdict(dict, self.config["opmethod"])
 
-    def incoming_request(self, reqname, *args):
+    def incoming_request(self, reqname, *args, **kwargs):
         # Choose the appropriate handler here.
         reqname = reqname.split(".")[-1]
         if reqname in self.CONNECTOR_REQS:
-            self._do_connector_operation(reqname, *args)
+            self._do_connector_operation(reqname, *args, **kwargs)
         elif reqname in self.OTHER_REQS:
-            return getattr(self, "_do_{0}".format(reqname))(*args)
+            return getattr(self, "_do_{0}".format(reqname))(*args, **kwargs)
 
     ### The following helper methods are used in implementing this plugin's
     ### functions
+    @non_reentrant(channel=1)
     @defer.inlineCallbacks
-    def _wait_for_op(self, channel, set_duration=0):
+    def _wait_for_op(self, channel):
         """Returns a deferred that fires when the bot has op in the named
         channel, which may be immediately. If the bot does not have op, it will
         be requested and the defer will fire when it is acquired. May error if
         op is un-acquirable in the channel.
-
-        If set_duration is non-zero, the op_until variable will be set to
-        set_duration seconds after the time that op is acquired.
 
         """
         # If we have op, just return immediately.
@@ -201,45 +191,21 @@ class OpProvider(EventWatcher, BotPlugin):
 
         nick = (yield self.transport.issue_request("irc.getnick"))
 
-        issued = False
+        log.msg("We need op. Asking the {0} connector".format(connector))
         try:
-            if not self.op_pending[channel]:
-                self.op_pending[channel] = True
-                issued = True
-                log.msg("We need op. Asking the {0} connector".format(connector))
-                try:
-                    yield self.transport.issue_request("connector.{0}.op".format(connector),
-                            channel=channel,
-                            nick = nick,
-                            )
-                except NotImplementedError:
-                    raise OpFailed("Connector {0} is not loaded, does not exist, or does not provide 'op'".format(connector))
-            else:
-                log.msg("We need op but op is already pending. waiting...")
+            yield self.transport.issue_request("connector.{0}.op".format(connector),
+                    channel=channel,
+                    nick = nick,
+                    )
+        except NotImplementedError:
+            raise OpFailed("Connector {0} is not loaded, does not exist, or does not provide 'op'".format(connector))
 
-            # Wait for op to be acquired by waiting for the event watcher started
-            # at the beginning of this method.
-            if not (yield op_waiter):
-                raise OpFailed("Timeout in waiting for op request to be fulfilled")
-        finally:
-            if issued:
-                self.op_pending[channel] = False
+        # Wait for op to be acquired by waiting for the event watcher started
+        # at the beginning of this method.
+        if not (yield op_waiter):
+            raise OpFailed("Timeout in waiting for op request to be fulfilled")
 
-        if issued:
-            if set_duration:
-                self.op_until[channel] = max(self.op_until[channel], time.time()+set_duration)
-
-            # If we opped ourself, which we must have if the code got here,
-            # then put in a request to de-op ourself.  Issue the deop request
-            # right away. The deop request takes a second to go through as
-            # implemented in _do_mode, so that should give it enough time to do
-            # any other op-requiring operations before the deop actually goes
-            # through.
-            # This behavior also has the advantage that the bot will never
-            # de-op itself if it was opped on purpose from another user, only
-            # if it needed to give itself op
-            self._deop(channel)
-
+    @non_reentrant(channel=1)
     @defer.inlineCallbacks
     def _deop(self, channel):
         """Issues a deop request, either immediately, or once the timer
@@ -256,11 +222,14 @@ class OpProvider(EventWatcher, BotPlugin):
         if not (yield self.transport.issue_request("irc.has_op", channel)):
             return
 
-        log.msg("deoping")
+        log.msg("Deopping: issuing a -o mode request")
         self._do_mode(channel, "-o",
-                (yield self.transport.issue_request("irc.getnick"))
+                (yield self.transport.issue_request("irc.getnick")),
+                # hold op for at most 1 second so that any non-mode operations
+                # go through
+                delay=1
                 )
-        # It may be tempting to set the delay parameter to the _do_mode here to
+        # It may be tempting to set the delay parameter to _do_mode() here to
         # configure how long the bot holds op, similar to the behavior of the
         # old admin plugin where any op-acquisition would hold it for a
         # configured amount of time after it was last requested.
@@ -327,6 +296,7 @@ class OpProvider(EventWatcher, BotPlugin):
             self.transport.send_event(Event("irc.do_topic",
                 channel=channel,
                 topic=target,))
+            self._deop(channel)
         else:
             # Could happen if we defined more connector operations than we have
             # coded handlers for in this method.
@@ -340,10 +310,12 @@ class OpProvider(EventWatcher, BotPlugin):
         kickevent = Event("irc.do_kick", channel=channel,
                 user=target, reason=reason)
         yield self._wait_for_op(channel)
+        log.msg("I have op. Kicking now!")
         self.transport.send_event(kickevent)
+        self._deop(channel)
 
     @defer.inlineCallbacks
-    def _do_mode(self, channel, mode, param=None, delay=1):
+    def _do_mode(self, channel, mode, param=None, delay=0.1):
         """Handles arbitrary mode requests that aren't handled by a connector.
         This method never uses a connector and will always acquire op to
         perform the mode request (may use a connector to acquire op, though).
@@ -372,8 +344,11 @@ class OpProvider(EventWatcher, BotPlugin):
             # Something else handled it in this interval? okay bail
             return
 
-        ### Handle the mode buffer here
+        # Acquire op here.
         yield self._wait_for_op(channel)
+        # Now that we have op, put in a deop right now, which will recurse into
+        # this method and add the deop to the mode buffer
+        self._deop(channel)
 
         modelist = list(self.mode_buffer[channel])
         self.mode_buffer[channel].clear()
@@ -417,5 +392,8 @@ class OpProvider(EventWatcher, BotPlugin):
         log.msg("Mode buffer emptied")
 
 
+    @defer.inlineCallbacks
     def _do_become_op(self, channel, duration):
-        return self._wait_for_op(channel, duration)
+        yield self._wait_for_op(channel)
+        self.op_until[channel] = max(self.op_until[channel], time.time()+duration)
+        self._deop(channel)

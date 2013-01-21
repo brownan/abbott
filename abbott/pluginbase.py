@@ -1,10 +1,12 @@
 from __future__ import print_function
+
 import json
 import UserDict
 import os
 import os.path
 import sys
 from collections import defaultdict
+from functools import wraps
 
 from twisted.internet import defer
 from twisted.internet import reactor
@@ -372,7 +374,14 @@ class EventWatcher(object):
         It is the caller's responsibility to make sure the plugin has a hook in
         place to catch any given event types
 
+        A timeout of 0 is different than a timeout of None. None is equivalent
+        to infinite timeout, in that it will wait forever for the event. A
+        timeout of 0 will always pass through and never return an event.
+        Exception: if both are None then success is returned.
+
         """
+        if timeout == 0:
+            return defer.succeed(None)
         if not event_match and not timeout:
             return defer.succeed(None)
         elif not event_match:
@@ -400,3 +409,73 @@ class EventWatcher(object):
                 timer = None
             self.__watchers[event_match.eventtype].add((event_match, d, timer))
             return d
+
+def non_reentrant(**keyargs):
+    """This is a handy utility to decorate a defer.inlineCallbacks function and
+    will prevent a second call to the function with the same key from entering
+    the function.
+
+    More precisely, this function returns a decorator for a function which is
+    expected to return a deferred. Only one execution of the function per key
+    is allowed. Other functions will return a new deferred which will fire upon
+    the first execution's completion (with the same value).
+
+    This is a handy way of de-duplicating effort. If two functions both call
+    some kind of method that needs to wait for a result, then only one instance
+    of the method is actually invoked, but they both get the answer.
+
+    Can only wrap methods which return a deferred or are decorated with
+    defer.inlineCallbacks.
+
+    keyargs is a dictionary mapping keyword argument names (in **kwargs) to the
+    positional index (in *args), as a way of declaring the arguments you want
+    part of the key.  The positional index can be None if the argument to key
+    is keyword only, not positional.  Remember, positional arguments start at 0
+    and that includes the 'self' paramater of methods.
+
+    example:
+    @non_reentrant(channel=1)
+    def compute_value(self, channel, param, somethingelse):
+        ...
+
+    """
+    def decorator(func):
+
+        # This maps a tuple of key arguments to a list of deferred objects
+        entrants = {}
+
+        @wraps(func)
+        def new_func(*args, **kwargs):
+            # determine what our key argument tuple is.
+            key_arguments = []
+            for kwarg, posarg in keyargs.iteritems():
+                if posarg is not None and len(args) > posarg:
+                    key_arguments.append(args[posarg])
+                elif kwarg in kwargs:
+                    key_arguments.append(kwargs[kwarg])
+                else:
+                    # This argument was not given. We cannot do anything this
+                    # call
+                    return func(*args, **kwargs)
+
+            key_arguments = tuple(key_arguments)
+
+            # Now that we have a key by which to track invocations, check our
+            # entrants dict
+            if key_arguments not in entrants:
+                entrants[key_arguments] = []
+
+                real_d = func(*args, **kwargs)
+                def done(param):
+                    waiters = entrants.pop(key_arguments)
+                    for _, other_d in waiters:
+                        other_d.callback(param)
+                real_d.addBoth(done)
+
+            d = defer.Deferred()
+            entrants[key_arguments].append(d)
+            return d
+
+        return new_func
+
+    return decorator
