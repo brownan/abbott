@@ -7,7 +7,7 @@ from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass
 from ..transport import Event
-from ..pluginbase import BotPlugin
+from ..pluginbase import BotPlugin, EventWatcher
 
 """
 
@@ -44,14 +44,14 @@ class IRCWhois(CommandPluginSuperclass):
 
         self.listen_for_event("irc.on_unknown")
 
-        #self.install_command(
-        #        cmdname="whois",
-        #        argmatch=r"(?P<nick>[^ ]+)",
-        #        callback=self.do_whois,
-        #        cmdusage="<nick>",
-        #        helptext="Does a whois and prints the results. This command is meant for debugging.",
-        #        permission="irc.whois",
-        #        )
+        self.install_command(
+                cmdname="whois",
+                argmatch=r"(?P<nick>[^ ]+)",
+                callback=self.do_whois,
+                cmdusage="<nick>",
+                helptext="Does a whois and prints the results. This command is meant for debugging.",
+                permission="irc.whois",
+                )
 
         # nick of the current whois that is coming in on the wire right this
         # moment
@@ -129,9 +129,13 @@ class IRCWhois(CommandPluginSuperclass):
         except NoSuchNick:
             event.reply("Server said: no such nick")
             return
-        event.reply("Whois info for %s:" % nick)
-        for command, params in info.iteritems():
-            event.reply("%s: %s" % (command, params))
+        if "330" in info:
+            event.reply("{0} {2} {1}".format(*info["330"]))
+        else:
+            event.reply("{0} is not logged in".format(nick))
+        #event.reply("Whois info for %s:" % nick)
+        #for command, params in info.iteritems():
+        #    event.reply("%s: %s" % (command, params))
 
 class Names(CommandPluginSuperclass):
     """Provides a NAMES request for other plugins and a !names command"""
@@ -218,6 +222,7 @@ class ReplyInserter(CommandPluginSuperclass):
                 cmdusage="<text to echo>",
                 argmatch="(?P<msg>.+)$",
                 helptext="Echos text back to where it came",
+                permission="irc.echo"
                 )
 
         self.install_command(
@@ -292,3 +297,123 @@ class ReplyInserter(CommandPluginSuperclass):
         event.reply = reply
         return event
 
+class HasOp(BotPlugin):
+    """A simple plugin to determine if the bot has OP in a channel or not.
+    Also fires an event irc.hasop.acquired when op is acquired (no matter the
+    source)
+    
+    """
+    REQUIRES = ["ircutil.Names"]
+    def start(self):
+        super(HasOp, self).start()
+
+        self.has_op = {}
+
+        self.provides_request("irc.has_op")
+        self.listen_for_event("irc.on_join")
+        self.listen_for_event("irc.on_mode_change")
+
+    @defer.inlineCallbacks
+    def on_request_irc_has_op(self, channel):
+
+        try:
+            defer.returnValue( self.has_op[channel] )
+        except KeyError:
+
+            names_list = (yield self.transport.issue_request("irc.names",channel))
+
+            nick = (yield self.transport.issue_request("irc.getnick"))
+
+            has_op = "@"+nick in names_list
+            self.has_op[channel] = has_op
+            defer.returnValue(has_op)
+
+    def on_event_irc_on_join(self, event):
+        """If we find ourself joining a channel that we thought we had op, then
+        we actually don't anymore. This happens on disconnects/reconnects or on
+        a manual part/join. Anything that doesn't involve this plugin being
+        restarted.
+
+        """
+        self.has_op[event.channel] = False
+
+    @defer.inlineCallbacks
+    def on_event_irc_on_mode_change(self, event):
+        """Called when we observe a mode change. Check to see if it was an op
+        operation on ourselves and cache it
+
+        """
+        mynick = (yield self.transport.issue_request("irc.getnick"))
+
+        if (event.set == True and "o" == event.mode and
+                event.arg == mynick):
+            # Op acquired. Make a note of it
+            self.has_op[event.channel] = True
+            self.transport.send_event(Event("ircutil.hasop.acquired",
+                channel=event.channel))
+
+        elif (event.set == False and "o" == event.mode and
+                event.arg == mynick):
+            # Op gone
+            log.msg("Lost op on {0}".format(event.channel))
+            self.has_op[event.channel] = False
+
+class ChanMode(EventWatcher, BotPlugin):
+    """A simple plugin that provides channel mode information to other channels
+    
+    """
+    REQUIRES = []
+    def start(self):
+        super(ChanMode, self).start()
+
+        self.mode = {}
+
+        self.provides_request("irc.chanmode")
+
+        self.listen_for_event("irc.on_join")
+        self.listen_for_event("irc.on_mode_change")
+        self.listen_for_event("irc.on_unknown")
+
+    @defer.inlineCallbacks
+    def on_request_irc_chanmode(self, channel):
+
+        try:
+            defer.returnValue( self.mode[channel] )
+        except KeyError:
+
+            yield self._get_mode(channel)
+
+            defer.returnValue( self.mode[channel] )
+
+    @defer.inlineCallbacks
+    def _get_mode(self, channel):
+        log.msg("Sending a request for the mode of channel {0}".format(channel))
+        self.transport.send_event(Event("irc.do_raw",line="MODE {0}".format(channel)))
+
+        reply = (yield self.wait_for(Event("irc.on_unknown", command="RPL_CHANNELMODEIS"),
+                timeout=5))
+        
+        if not reply:
+            raise Exception("no response from server")
+
+        mode, params = reply.params[2], reply.params[3:]
+
+        self.mode[channel] = (mode, params)
+        log.msg("mode is {0} {1}".format(mode, " ".join(params)))
+
+    @defer.inlineCallbacks
+    def on_event_irc_on_mode_change(self, event):
+        """On channel join and when we see a mode change, issue a mode request
+        and record the full modeline
+
+        """
+        nick = (yield self.transport.issue_request("irc.getnick"))
+        if event.channel == nick:
+            return
+        self._get_mode(event.channel)
+    def on_event_irc_on_join(self, event):
+        """On channel join and when we see a mode change, issue a mode request
+        and record the full modeline
+
+        """
+        self._get_mode(event.channel)

@@ -27,7 +27,7 @@ class TempConverter(BotPlugin):
             (?<![%]) # Negative lookbehind assertion to exclude temps that
                      # come after a %
             (
-                -? # optional minus
+                [-−]? # optional minus
                 \d+ # Capture a number
                 (?: [.] \d+)? # optional decimal point
             )
@@ -45,7 +45,7 @@ class TempConverter(BotPlugin):
             (?<![%]) # Negative lookbehind assertion to exclude temps that
                      # come after a %
             (
-                -? # optional minus
+                [-−]? # optional minus
                 \d+ # Capture a number
                 (?: [.] \d+)? # optional decimal point
             )
@@ -73,6 +73,7 @@ class TempConverter(BotPlugin):
             # Convert the given C to F
             replies = []
             for c in c_matches:
+                c = c.replace(u"−","-")
                 if len(c) > 6:
                     continue
                 c = int(round(float(c)))
@@ -87,6 +88,7 @@ class TempConverter(BotPlugin):
             # Convert the given F to C
             replies = []
             for f in f_matches:
+                f = f.replace(u"−","-")
                 if len(f) > 6:
                     continue
                 f = int(round(float(f)))

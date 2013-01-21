@@ -2,16 +2,12 @@
 from __future__ import division
 import random
 from collections import defaultdict, deque
-from functools import wraps
 import datetime
 import time
 import bisect
-import traceback
 
 from twisted.internet import reactor, defer
 from twisted.python import log
-
-from .admin import OpError, OpTimedOut, NoOpMethod
 
 try:
     from pretty import date as prettydate
@@ -19,8 +15,10 @@ except ImportError:
     print "Please install the pypi package 'py-pretty'"
     raise
 
-from ..command import CommandPluginSuperclass
+from ..command import CommandPluginSuperclass, require_channel
+from ..pluginbase import EventWatcher
 from ..transport import Event
+from . import ircop
 
 def find_time_until(hour_minute):
     """Returns a datetime.timedelta for the time interval between now and the
@@ -47,28 +45,6 @@ def td_to_str(td):
     return prettydate(
             datetime.datetime.now() + td
             )
-
-def delay(t):
-    """"This should only be used for short delays because long delays won't be
-    canceled properly on plugin unload or other exceptional cases
-
-    """
-    d = defer.Deferred()
-    reactor.callLater(t, d.callback, None)
-    return d
-
-def require_channel(func):
-    """Wraps command callbacks and requires them to be in response to a channel
-    message, not a private message directed to the bot.
-
-    """
-    @wraps(func)
-    def newfunc(self, event, match):
-        if event.direct:
-            event.reply("Hey, you can't do that in here!")
-        else:
-            return func(self, event, match)
-    return newfunc
 
 # http://code.activestate.com/recipes/577363-weighted-random-choice/
 def weighted_random_choice(seq, weight):
@@ -108,7 +84,8 @@ def weighted_random_choice(seq, weight):
     return elems[ix][1]
 
 
-class VoiceOfTheDay(CommandPluginSuperclass):
+class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
+    REQUIRES = ["ircop.OpProvider"]
     def __init__(self, *args):
         self.started = False
         self.timer = None
@@ -126,7 +103,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         votdgroup = self.install_cmdgroup(
                 grpname="votd",
-                permission="vott.configure",
+                permission="votd.configure",
                 helptext="Voice of the Day configuration commands",
                 )
 
@@ -267,7 +244,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
     @require_channel
     def settime(self, event, match):
-        channel = event.channel
         hour = int(match.groupdict()['hour'])
         minute = int(match.groupdict().get('minute', None) or 0)
         if hour < 0 or hour > 23:
@@ -285,27 +261,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
             td_to_str(find_time_until((hour,minute))),
             "will" if self.config['channel'] else "would",
             ))
-
-
-    @defer.inlineCallbacks
-    def _send_as_op(self, event, reply=lambda s: None):
-        """Issues an ircadmin.opself request, then sends the event. If the
-        opself fails, sends an error to the reply function provided
-
-        """
-        try:
-            yield self.transport.issue_request("ircadmin.opself", event.channel)
-        except OpTimedOut:
-            log.msg("Op request timed out")
-            reply("I could not become OP. Check the error log, configuration, etc.")
-            defer.returnValue(False)
-        except NoOpMethod:
-            log.msg("No op methods configured!")
-            reply("I can't do that in %s, I don't have OP and have no way to acquire it!" % event.channel)
-            defer.returnValue(False)
-        else:
-            self.transport.send_event(event)
-            defer.returnValue(True)
 
     def _timer_up(self):
         self.timer = None
@@ -339,20 +294,20 @@ class VoiceOfTheDay(CommandPluginSuperclass):
 
         names = set((yield self.transport.issue_request("irc.names", channel)))
 
+        # Gain op here
+        try:
+            # Enough time to say everything we need to say
+            yield self.transport.issue_request("ircop.become_op", 20)
+        except ircop.OpFailed, e:
+            say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
+            log.msg("Error while un-voicing previous voice. Bailing. "  + str(e))
+            return
+
         # de-voice the current voice if he/she still has it
         currentvoice = self.config.get("currentvoice")
         if currentvoice:
             if "+"+currentvoice in names:
-                e = Event("irc.do_mode",
-                        channel=channel,
-                        set=False,
-                        modes="v",
-                        user=currentvoice,
-                        )
-                if not (yield self._send_as_op(e)):
-                    say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
-                    log.msg("Error while un-voicing previous voice. Bailing")
-                    return
+                yield self.transport.issue_request("ircop.devoice", channel, currentvoice)
                 # edit the names set to reflect the current channel state. This
                 # is only really important later so the current voice is still
                 # technically eligible for the new drawing (although that
@@ -361,19 +316,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                 names.add(currentvoice)
 
             self.config['currentvoice'] = None
-
-
-        # Gain OP here. This will be a no-op if op was granted in satisfying
-        # the do_mode call above, but there are two cases in which that may not
-        # happen (no curret voice or current voice no longer has voice)
-        try:
-            yield self.transport.issue_request("ircadmin.opself", channel)
-        except OpError, e:
-            log.msg(traceback.format_exc())
-            say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
-            return
-
-
 
         # Take a copy of the counters and use that for the rest of the method
         counter = self.config["counter"]
@@ -445,7 +387,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         self.config.save()
 
         say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
-        yield delay(3)
+        yield self.wait_for(timeout=3)
 
         # do this here because we use this value below
         self.config["win_counter"][winner] += 1
@@ -478,23 +420,18 @@ class VoiceOfTheDay(CommandPluginSuperclass):
                                 u" and {0} total wins, today the hat goes to…".format(win_count)
                         )(self.config["win_counter"][winner], sorted(self.config["win_counter"].itervalues())),
                 ))
-        yield delay(2)
+        yield self.wait_for(timeout=2)
         say("{0}!".format(winner))
 
-        yield delay(1)
-        yield self._send_as_op(Event("irc.do_mode",
-            channel=channel,
-            set=True,
-            modes="v",
-            user=winner,
-            ))
+        yield self.wait_for(timeout=1)
+        yield self.transport.issue_request("ircop.voice", channel, winner)
         self.config['currentvoice'] = winner
         self.config.save()
-        yield delay(5)
+        yield self.wait_for(timeout=5)
         extra = self.config.get("extra", "until next time...").split("\n")
         for l in extra:
             say(l.format(winner=winner))
-            yield delay(2)
+            yield self.wait_for(timeout=2)
 
         self._set_timer()
         
@@ -524,7 +461,7 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         # handler happens to run before the reload, this will save the config,
         # clobbering the new one. So here we wait a second to let the other
         # handler run, reload our config, THEN we increment the counter.
-        yield delay(1)
+        yield self.wait_for(timeout=1)
         if event.channel == self.config["channel"]:
             nick = event.user.split("!")[0]
             self.config["counter"][nick] += 1
@@ -611,7 +548,6 @@ class VoiceOfTheDay(CommandPluginSuperclass):
         if user not in self.config['counter']:
             return
 
-        all_counts = []
         total = 0
         for name, count in self.config['counter'].iteritems():
             # compute the effective entry count

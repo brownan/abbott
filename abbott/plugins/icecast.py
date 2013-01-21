@@ -2,11 +2,9 @@
 from StringIO import StringIO
 
 from twisted.web.client import Agent
-from twisted.web.http_headers import Headers
 from twisted.internet import reactor
 from twisted.internet import defer
 from twisted.internet.protocol import Protocol
-from twisted.python import log
 
 from ..command import CommandPluginSuperclass
 

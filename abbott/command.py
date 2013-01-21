@@ -1,6 +1,7 @@
 import re
 from collections import namedtuple
 import random
+from functools import wraps
 
 from twisted.python import log
 from twisted.internet import reactor
@@ -45,6 +46,19 @@ flexible argument parsing with regular expressions, an integrated help system,
 and automatic permission checking.
 
 """
+def require_channel(func):
+    """Wraps command callbacks and requires them to be in response to a channel
+    message, not a private message directed to the bot.
+
+    """
+    @wraps(func)
+    def newfunc(self, event, match):
+        if event.direct:
+            event.reply("Hey, you can't do that in here!")
+        else:
+            return func(self, event, match)
+    return newfunc
+
 
 class _CommandGroup(object):
     """Internal object created by CommandPluginSuperclass.install_cmdgroup()

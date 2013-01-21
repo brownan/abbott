@@ -2,7 +2,6 @@
 import time
 import random
 import re
-from collections import defaultdict
 
 from twisted.internet import reactor
 from twisted.python import log

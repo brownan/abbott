@@ -73,6 +73,9 @@ class PluginController(CommandPluginSuperclass):
             event.reply("Something went wrong loading the plugin. Check the error log for a traceback")
             raise
         event.reply("Plugin %s has been loaded." % plugin_name)
+        for dep in self.pluginboss.loaded_plugins[plugin_name].REQUIRES:
+            if dep not in self.pluginboss.loaded_plugins:
+                event.reply("Warning: {0} depends on {1}, but {1} is not loaded".format(plugin_name, dep))
 
     def unload_plugin(self, event, match):
         plugin_name = match.groupdict()['plugin']
@@ -146,6 +149,9 @@ class PluginController(CommandPluginSuperclass):
         pluginlist.append(plugin_name)
         self.pluginboss.save()
         event.reply("Plugin %s added to plugins to launch on boot" % plugin_name)
+        for dep in self.pluginboss.loaded_plugins[plugin_name].REQUIRES:
+            if dep not in pluginlist:
+                event.reply("Warning: {0} depends on {1}, but {1} is not set to load on startup".format(plugin_name, dep))
 
     def remove_from_startup(self, event, match):
         plugin_name = match.groupdict()['plugin']

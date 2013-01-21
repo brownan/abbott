@@ -75,7 +75,7 @@ class Transport(object):
                 for callback_obj in set(callback_obj_set):
                     try:
                         event = callback_obj.received_middleware_event(event)
-                    except Exception, e:
+                    except Exception:
                         # We don't want one plugin's errors to prevent other
                         # plugins from being called
                         import traceback
@@ -95,7 +95,7 @@ class Transport(object):
                         # example), then don't call it
                         if callback_obj in callback_obj_set:
                             callback_obj.received_event(event)
-                    except Exception, e:
+                    except Exception:
                         # We don't want one plugin's errors to prevent other
                         # plugins from being called.
                         import traceback
@@ -117,11 +117,15 @@ class Transport(object):
         except KeyError:
            return defer.fail(NotImplementedError("Request name %r is not implemented"%(name,)))
 
-        toret = obj.incoming_request(name, *args, **kwargs)
+        try:
+            toret = obj.incoming_request(name, *args, **kwargs)
+        except Exception, e:
+            return defer.fail(e)
 
+        # Programming convenience: request implementations can return a
+        # deferred or a value, and this automatically wraps them in a deferred.
         if not isinstance(toret, defer.Deferred):
-            log.err("Requets method %s provided by %s did not return a deferred" % (name, obj))
-            toret = defer.fail(TypeError("Request Method did not return a deferred"))
+            return defer.succeed(toret)
 
         return toret
 
@@ -129,6 +133,9 @@ class Transport(object):
         """Plugins: call this in your start() method to receive requests for this reqeust name
 
         """
+        if name in self._request_listeners:
+            log.msg("WARNING! two plugins provide the request {0}: {1} and {2}".format(
+                name, obj_to_notify.plugin_name, self._request_listeners[name].plugin_name))
         self._request_listeners[name] = obj_to_notify
 
 

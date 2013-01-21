@@ -4,8 +4,11 @@ import UserDict
 import os
 import os.path
 import sys
+from collections import defaultdict
 
 from twisted.internet import defer
+from twisted.internet import reactor
+from twisted.python import log
 
 class PluginConfig(UserDict.UserDict):
     """Installed in plugins as self.config. Provides a dictionary-like
@@ -207,7 +210,17 @@ class BotPlugin(object):
     """All bot plugins should inherit from this. It provides methods for
     talking to the transport layer and for saving persistent configuration
 
+    If subclasses set the class attribute DEFAULT_CONFIG, it specifies default
+    config items that will always be present in self.config, initialized with
+    the default value if it is not found in the config file. DEFAULT_CONFIG
+    should be a dictionary mapping strings to default values.
+
+    The REQUIRES class variable should be set to a list of plugins that this
+    one depends on.
+
     """
+    REQUIRES = []
+    DEFAULT_CONFIG = {}
     def __init__(self, plugin_name, transport, pluginboss):
         self.plugin_name = plugin_name
         self.transport = transport
@@ -228,6 +241,12 @@ class BotPlugin(object):
 
         """
         self.config = self.pluginboss.get_plugin_config(self.plugin_name)
+        save = lambda: None
+        for key, defaultvalue in self.DEFAULT_CONFIG.iteritems():
+            if key not in self.config:
+                save = self.config.save
+                self.config[key] = defaultvalue
+        save()
 
     def start(self):
         """Do any initialization here. This is called after __init__()
@@ -272,7 +291,7 @@ class BotPlugin(object):
         if method:
             toret = method(*args, **kwargs)
         else:
-            toret = defer.fail(NotImplementedError("The plugin does not provide that request method"))
+            toret = defer.fail(NotImplementedError("The plugin {0} does not provide a request method for {1}".format(self.plugin_name, name)))
         return toret
 
     ### Convenience methods for use by the plugin to install event listeners
@@ -322,18 +341,25 @@ class EventWatcher(object):
         super(EventWatcher, self).received_event(event)
 
         toremove = []
-        for event_match, d, timer in self.__watchers[event.eventtype]:
-            for attr in dir(event_match):
-                if getattr(event_match, attr) != getattr(event, attr):
-                    break
-            else:
-                # we have a match
-                toremove.append((event_match, d, timer))
-                if timer:
-                    timer.cancel()
-                d.callback(event)
-        for item in toremove:
-            self.__watchers.remove(item)
+        try:
+            for event_match, d, timer in self.__watchers[event.eventtype]:
+                # Every attribute specified in the event_match template object must
+                # be equal to the corresponding attribute in the received event
+                for attr in dir(event_match):
+                    if attr.startswith("_"): continue
+                    if not hasattr(event, attr) or getattr(event_match, attr) != getattr(event, attr):
+                        break
+                else:
+                    # we have a match
+                    toremove.append((event_match, d, timer))
+                    if timer:
+                        timer.cancel()
+                        self.__timers.remove(timer)
+                    d.callback(event)
+        finally:
+            # In a finally block in case the callback raises an error of some sort
+            for item in toremove:
+                self.__watchers[event.eventtype].remove(item)
 
     def wait_for(self, event_match=None, timeout=None):
         """This method returns a twisted deferred that fires when an event is
@@ -352,23 +378,25 @@ class EventWatcher(object):
         elif not event_match:
             # just a timeout
             d = defer.Deferred()
-            def timesup():
+            def timer_timesup():
                 self.__timers.remove(timer)
                 d.callback(None)
-            timer = reactor.callLater(timeout, timesup)
+            timer = reactor.callLater(timeout, timer_timesup)
             self.__timers.add(timer)
 
         else:
 
-            # A timeout and an event watch
+            # An event watcher and possibly a timer
             d = defer.Deferred()
             if timeout:
-                def timesup():
+                # both an event watcher and a timer
+                def timer_and_event_timesup():
                     self.__timers.remove(timer)
                     self.__watchers[event_match.eventtype].remove((event_match, d, timer))
                     d.callback(None)
-                timer = reactor.callLater(timeout, timesup)
+                timer = reactor.callLater(timeout, timer_and_event_timesup)
                 self.__timers.add(timer)
             else:
                 timer = None
-            self.__watchers[event_match.eventtype].remove((event_match, d, timer))
+            self.__watchers[event_match.eventtype].add((event_match, d, timer))
+            return d

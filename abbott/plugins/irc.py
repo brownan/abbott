@@ -218,7 +218,7 @@ class IRCBot(irc.IRCClient):
                 prefix=prefix, command=command, params=params)
 
     def mode(self, channel, set, modes, limit=None, user=None, mask=None):
-        """This overridden method exists to make the parameter 'channel'
+        """This overridden method exists solely to make the parameter 'channel'
         uniform with the rest of this code. twisted uses the parameter name
         'chan'
 
