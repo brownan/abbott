@@ -7,26 +7,30 @@ from twisted.internet import reactor
 from twisted.python import log
 from twisted.internet import defer
 
+try:
+    from parsedatetime.parsedatetime import Calendar
+except ImportError:
+    print "Please install the pip package parsedatetime"
+    raise
+
 from ..command import CommandPluginSuperclass, require_channel
 from ..transport import Event
 from . import ircutil
 from . import ircop
 
-duration_match = r"(?P<duration>\d+[dhmsw])"
 def parse_time(timestr):
-    duration = 0
-    multipliers = {
-            's': 1,
-            'm': 60,
-            'h': 60*60,
-            'd': 60*60*24,
-            'w': 60*60*24*7,
-            }
-    for component in re.findall(duration_match, timestr):
-        t, unit = component[:-1], component[-1]
-        duration += int(t) * multipliers[unit]
+    """Parses a time string and returns the number of seconds to wait
 
-    return duration
+    """
+    c = Calendar()
+    result, status = c.parse(timestr)
+
+    if status == 0:
+        raise ValueError("I don't understand when you want me to do that")
+
+    timestamp = time.mktime(result)
+    now = time.time()
+    return max(1, timestamp-now)
 
 class IRCAdmin(CommandPluginSuperclass):
     """Provides a command interface to IRC operator tasks. Uses the plugins in
@@ -240,7 +244,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="quiet",
                 cmdmatch="quiet|QUIET|mute",
                 cmdusage="<nick or hostmask> [for <duration>]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0}+)?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.quiet,
@@ -252,7 +256,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="unquiet",
                 cmdmatch="unquiet|UNQUIET|unmute",
                 cmdusage="<nick or hostmask> [in <delay>]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0}+)?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 prefix=".",
                 permission="irc.op.quiet",
                 callback=self.unquiet,
@@ -264,7 +268,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="ban",
                 cmdmatch="ban|BAN",
                 cmdusage="<nick or hostmask> [for <duration>] [reason]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:for )?{0}+)?(?: (?P<reason>.+))?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 prefix=".",
                 permission="irc.op.ban",
                 callback=self.ban,
@@ -275,7 +279,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="unban",
                 cmdmatch="unban|UNBAN",
                 cmdusage="<nick or hostmask> [in <delay>]",
-                argmatch = "(?P<nick>[^ ]+)(?: (?:in )?{0}+)?$".format(duration_match),
+                argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 prefix=".",
                 permission="irc.op.ban",
                 callback=self.unban,
@@ -431,7 +435,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def quiet(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
-        duration = groupdict['duration']
+        duration = groupdict['timestr']
         channel = event.channel
 
         self._do_moderequest('q', event.reply, nick, duration, channel)
@@ -466,9 +470,8 @@ class IRCAdmin(CommandPluginSuperclass):
         # nick here could be a nick, a hostmask (with possible wildcards), or
         # an extban
         nick = groupdict['nick']
-        duration = groupdict['duration']
+        duration = groupdict['timestr']
         channel = event.channel
-        reason = groupdict['reason']
 
         do_kick = False
         if "@" in nick and "!" in nick and not "$" in nick:
@@ -504,7 +507,7 @@ class IRCAdmin(CommandPluginSuperclass):
             self.transport.issue_request("ircop.kick",
                     channel=channel,
                     target=nick,
-                    reason=reason or ("Requested by " + event.user.split("!")[0]),
+                    reason="Banned by " + event.user.split("!")[0],
                     )
 
 
@@ -540,7 +543,13 @@ class IRCAdmin(CommandPluginSuperclass):
             defer.returnValue(False)
 
         if duration:
-            log.msg("+%s for %s in %s for %s" % (mode, mask, channel, duration))
+            log.msg("+%s for %s in %s %s" % (mode, mask, channel, duration))
+            if isinstance(duration, basestring):
+                try:
+                    duration = parse_time(duration)
+                except ValueError, e:
+                    reply(str(e))
+                    defer.returnValue(False)
         else:
             log.msg("+%s for %s in %s" % (mode, mask, channel, ))
 
@@ -556,8 +565,6 @@ class IRCAdmin(CommandPluginSuperclass):
                             lambda f: reply(f.getErrorMessage())
                             )
         if duration:
-            if isinstance(duration, basestring):
-                duration = parse_time(duration)
             self._set_timer(duration, mask, channel, mode)
 
         defer.returnValue(True)
@@ -566,7 +573,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def unquiet(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
-        duration = groupdict['duration']
+        duration = groupdict['timestr']
         channel = event.channel
         
         self._do_modederequest('q', event.reply, nick, duration, channel)
@@ -575,7 +582,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def unban(self, event, match):
         groupdict = match.groupdict()
         nick = groupdict['nick']
-        duration = groupdict['duration']
+        duration = groupdict['timestr']
         channel = event.channel
         
         self._do_modederequest('b', event.reply, nick, duration, channel)
@@ -595,7 +602,11 @@ class IRCAdmin(CommandPluginSuperclass):
 
         if duration:
             if isinstance(duration, basestring):
-                duration = parse_time(duration)
+                try:
+                    duration = parse_time(duration)
+                except ValueError, e:
+                    reply(str(e))
+                    defer.returnValue(False)
             self._set_timer(duration, mask, channel, mode)
             reply("It shall be done")
             defer.returnValue(True)
