@@ -144,7 +144,7 @@ class OpProvider(EventWatcher, BotPlugin):
     # implemented by a method of the form _do_{name}
     # ban and unban are missing because it's just a shorthand for setting a +b
     # mode and doing a kick.
-    OTHER_REQS = frozenset(['kick', 'become_op', 'mode'])
+    OTHER_REQS = frozenset(['kick', 'become_op', 'mode', 'ban', 'unban'])
 
     def start(self):
         super(OpProvider, self).start()
@@ -460,3 +460,10 @@ class OpProvider(EventWatcher, BotPlugin):
         yield self._wait_for_op(channel)
         self.op_until[channel] = max(self.op_until[channel], time.time()+duration)
         self._deop_later(channel)
+
+    def _do_ban(self, channel, target):
+        """A shorthand for submitting a mode request for +b"""
+        return self._do_mode(channel, "+b", param=target)
+    def _do_unban(self, channel, target):
+        """A shorthand for submitting a mode request for -b"""
+        return self._do_mode(channel, "-b", param=target)

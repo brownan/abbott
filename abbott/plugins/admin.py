@@ -102,10 +102,11 @@ class IRCAdmin(CommandPluginSuperclass):
             # Now send the event
             try:
                 yield self.transport.issue_request(
-                        "ircop.mode",
+                        "ircop.{0}".format(
+                            {"b":"unban","q":"unquiet"}[mode]
+                            ),
                         channel=channel,
-                        mode="-"+mode,
-                        param=hostmask
+                        target=hostmask
                         )
             except ircop.OpFailed, e:
                 s = "I was about to un-{0} {1}, but {2}".format(
@@ -515,10 +516,11 @@ class IRCAdmin(CommandPluginSuperclass):
             log.msg("+%s for %s in %s" % (mode, mask, channel, ))
 
         try:
-            yield self.transport.issue_request("ircop.mode",
+            yield self.transport.issue_request("ircop.{0}".format(
+                    {"b":"ban","q":"quiet"}[mode]
+                    ),
                     channel=channel,
-                    mode="+"+mode,
-                    param=mask,
+                    target=mask,
                     )
         except ircop.OpFailed, e:
             reply(str(e))
@@ -566,10 +568,11 @@ class IRCAdmin(CommandPluginSuperclass):
             return
 
         try:
-            self.transport.issue_request("ircop.mode",
+            yield self.transport.issue_request("ircop.{0}".format(
+                    {"b":"unban","q":"unquiet"}[mode]
+                    ),
                     channel=channel,
-                    mode="-"+mode,
-                    param=mask,
+                    target=mask,
                     )
         except ircop.OpFailed, e:
             reply(str(e))
