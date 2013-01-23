@@ -392,6 +392,7 @@ class EventWatcher(object):
                 d.callback(None)
             timer = reactor.callLater(timeout, timer_timesup)
             self.__timers.add(timer)
+            return d
 
         else:
 
