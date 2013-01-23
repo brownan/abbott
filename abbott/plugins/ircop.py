@@ -271,7 +271,9 @@ class OpProvider(EventWatcher, BotPlugin):
         # The time to wait here pretty much doesn't matter, because as a
         # minimum we must wait for chanserv to respond and op us, which
         # typically takes around 2 seconds, and could be as many as 20.
-        self.buffer_timer[channel] = time.time() + 0.5
+        # It should still be small so that requests when we're holding op or
+        # are already op go through quickly
+        self.buffer_timer[channel] = time.time() + 0.2
         self._wait_buffer_processor_timer(channel)
 
     @non_reentrant(channel=1)

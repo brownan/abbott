@@ -290,6 +290,15 @@ class IRCAdmin(CommandPluginSuperclass):
                 callback=self.holdop,
                 helptext="Tells the bot to hold op for `time` seconds",
                 )
+        
+        self.install_command(
+                cmdname="mode",
+                cmdusage="[+-]<mode_letter> [param]",
+                argmatch="(?P<mode>[+-][a-z])(?: (?P<param>[^ ]+))?$",
+                permission="irc.op.mode",
+                callback=self.mode,
+                helptext="Sets a channel mode",
+                )
 
     @defer.inlineCallbacks
     def _nick_to_hostmask(self, nick):
@@ -472,21 +481,31 @@ class IRCAdmin(CommandPluginSuperclass):
             # Just a nick was given.
             do_kick = True
 
-        # We don't yield for the kick event. Yielding for an ircop event will
-        # wait until op is acquired before returning, so that any errors
-        # acquiring op are propagated to the caller. In this case, since we
-        # will be issuing a mode request directly below, we'll get errors from
-        # that. Plus, this way, the two requests will be combined.
+        # Do the mode request first. This will do a whois, and then return
+        # control to us while it submits an op request and the mode request.
+        # While the op request is pending, we continue and issue the kick
+        # below. If the whois fails, it returns false, and we cancel the kick.
+        # Any error is sent straight to the event.reply() so there is no need
+        # to do any error reporting here
+        #
+        # If we were to not yield here, we wouldn't be able to check the result
+        # and possibly cancel the whois. The process would probably go a bit
+        # faster because the whois and op request (for the kick) would be
+        # submitted in parallel, and as long as the whois comes in before the
+        # op request, the ban and kick will still happen together. However, in
+        # practice, waiting for chanserv to op us still takes much more time
+        # than the whois delay so it's not really worth it.
+        log.msg("issuing ban")
+        if not (yield self._do_moderequest('b', event.reply, nick, duration, channel)):
+            return
+
         if do_kick:
-            log.msg("issuing kick")
+            log.msg("issuing kick to go with the ban")
             self.transport.issue_request("ircop.kick",
                     channel=channel,
                     target=nick,
                     reason=reason or ("Requested by " + event.user.split("!")[0]),
                     )
-
-        log.msg("issuing ban")
-        yield self._do_moderequest('b', event.reply, nick, duration, channel)
 
 
     @defer.inlineCallbacks
@@ -497,6 +516,16 @@ class IRCAdmin(CommandPluginSuperclass):
 
         reply is used to send error messages. It should take a string.
 
+        This method does a whois request if a nick is given, to get and use the
+        hostmask in the actual mode request. This means that requests won't
+        happen immediately: there is a slight delay while we wait for the whois
+        to respond. If the whois fails (perhaps the user does not exist) then
+        this method returns (a deferred) False.
+
+        Callers should call this method first and wait for it to return. If it
+        succeeds, the caller can go on to put in another request (such as a
+        kick to accompany the ban)
+
         """
         try:
             mask = (yield self._nick_to_hostmask(nick))
@@ -505,31 +534,33 @@ class IRCAdmin(CommandPluginSuperclass):
                 nick,
                 {"q":"quiet","b":"ban"}.get(mode, "apply to"),
                 ))
-            return
+            defer.returnValue(False)
         except ircutil.WhoisTimedout:
             reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
-            return
+            defer.returnValue(False)
 
         if duration:
             log.msg("+%s for %s in %s for %s" % (mode, mask, channel, duration))
         else:
             log.msg("+%s for %s in %s" % (mode, mask, channel, ))
 
-        try:
-            yield self.transport.issue_request("ircop.{0}".format(
+        # Don't yield for the mode request. We want to return control to the
+        # caller as soon as possible, and errors still get sent to the
+        # passed-in reply() function
+        self.transport.issue_request("ircop.{0}".format(
                     {"b":"ban","q":"quiet"}[mode]
                     ),
                     channel=channel,
                     target=mask,
-                    )
-        except ircop.OpFailed, e:
-            reply(str(e))
-            return
-
+                    ).addErrback(
+                            lambda f: reply(f.getErrorMessage())
+                            )
         if duration:
             if isinstance(duration, basestring):
                 duration = parse_time(duration)
             self._set_timer(duration, mask, channel, mode)
+
+        defer.returnValue(True)
 
     @require_channel
     def unquiet(self, event, match):
@@ -551,32 +582,35 @@ class IRCAdmin(CommandPluginSuperclass):
 
     @defer.inlineCallbacks
     def _do_modederequest(self, mode, reply, nick, duration, channel):
+        """See _do_moderequest()"""
         try:
             mask = (yield self._nick_to_hostmask(nick))
         except ircutil.NoSuchNick:
-            reply("There is no user by than nick on the network. Check the username or try specifying a full hostmask")
-            return
+            reply("There is no user by that nick on the network. Check the {0} list with /mode +{1}".format(
+                {"q":"quiet","b":"ban"}[mode], mode))
+            defer.returnValue(False)
         except ircutil.WhoisTimedout:
             reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
-            return
+            defer.returnValue(False)
 
         if duration:
             if isinstance(duration, basestring):
                 duration = parse_time(duration)
             self._set_timer(duration, mask, channel, mode)
             reply("It shall be done")
-            return
+            defer.returnValue(True)
 
-        try:
-            yield self.transport.issue_request("ircop.{0}".format(
+        self.transport.issue_request("ircop.{0}".format(
                     {"b":"unban","q":"unquiet"}[mode]
                     ),
                     channel=channel,
                     target=mask,
-                    )
-        except ircop.OpFailed, e:
-            reply(str(e))
+                    ).addErrback(
+                            lambda f: reply(f.getErrorMessage())
+                            )
+
         log.msg("-%s for %s in %s" % (mode, mask, channel))
+        defer.returnValue(True)
 
     @require_channel
     def holdop(self, event, match):
@@ -585,6 +619,18 @@ class IRCAdmin(CommandPluginSuperclass):
 
         try:
             self.transport.issue_request("ircop.become_op", channel, minutes)
+        except ircop.OpFailed, e:
+            event.reply(str(e))
+
+    @require_channel
+    def mode(self, event, match):
+        channel = event.channel
+        gd = match.groupdict()
+        mode = gd['mode']
+        param = gd['param']
+
+        try:
+            self.transport.issue_request("ircop.mode", channel, mode, param)
         except ircop.OpFailed, e:
             event.reply(str(e))
 
