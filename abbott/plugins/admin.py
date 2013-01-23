@@ -281,6 +281,15 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Un-bans a user"
                 )
 
+        self.install_command(
+                cmdname="holdop",
+                cmdusage="<seconds>",
+                argmatch="(?P<time>\d+)$",
+                permission="irc.op.holdop",
+                callback=self.holdop,
+                helptext="Tells the bot to hold op for `time` seconds",
+                )
+
     @defer.inlineCallbacks
     def _nick_to_hostmask(self, nick):
         """Takes a nick or a hostmask and returns a parameter suitable for the
@@ -566,6 +575,16 @@ class IRCAdmin(CommandPluginSuperclass):
             reply(str(e))
         log.msg("-%s for %s in %s" % (mode, mask, channel))
 
+    @require_channel
+    def holdop(self, event, match):
+        channel = event.channel
+        minutes = match.groupdict()['time']
+
+        try:
+            self.transport.issue_request("ircop.become_op", channel, minutes)
+        except ircop.OpFailed, e:
+            event.reply(str(e))
+
 
 class IRCTopic(CommandPluginSuperclass):
     """Topic manipulation commands.
@@ -698,7 +717,7 @@ class IRCTopic(CommandPluginSuperclass):
         def callback(currenttopic):
             topic_parts = [x.strip() for x in currenttopic.strip().split("|")]
             topic_parts.append(match.groupdict()['text'])
-            self.transport.issue_request("ircop.topic", channel, " | ".join(topic_parts))
+            self._set_topic(channel, " | ".join(topic_parts), event.reply)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -715,7 +734,7 @@ class IRCTopic(CommandPluginSuperclass):
             topic_parts.insert(pos, text)
 
             newtopic = " | ".join(topic_parts)
-            self.transport.issue_request("ircop.topic", channel, newtopic)
+            self._set_topic(channel, newtopic, event.reply)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -737,7 +756,7 @@ class IRCTopic(CommandPluginSuperclass):
 
 
             newtopic = " | ".join(topic_parts)
-            self.transport.issue_request("ircop.topic", channel, newtopic)
+            self._set_topic(channel, newtopic, event.reply)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -757,7 +776,7 @@ class IRCTopic(CommandPluginSuperclass):
                 return
 
             newtopic = " | ".join(topic_parts)
-            self.transport.issue_request("ircop.topic", channel, newtopic)
+            self._set_topic(channel, newtopic, event.reply)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -774,7 +793,7 @@ class IRCTopic(CommandPluginSuperclass):
                 return
 
             newtopic = " | ".join(topic_parts)
-            self.transport.issue_request("ircop.topic", channel, newtopic)
+            self._set_topic(channel, newtopic, event.reply)
         self._get_current_topic(channel).addCallbacks(callback,
                 lambda _: event.reply("Could not determine current topic"))
 
@@ -791,6 +810,10 @@ class IRCTopic(CommandPluginSuperclass):
         # Now pop the next item, which will be our new topic
         newtopic = topicstack.pop()
 
-        self.transport.issue_request("ircop.topic", channel, newtopic)
+        self._set_topic(channel, newtopic, event.reply)
 
-
+    def _set_topic(self, channel, topic, reply):
+        try:
+            self.transport.issue_request("ircop.topic", channel, topic)
+        except ircop.OpFailed, e:
+            reply("Channel is +t and I can't acquire op! Reason: {0}".format(e))
