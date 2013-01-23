@@ -130,9 +130,17 @@ class IRCWhois(CommandPluginSuperclass):
             event.reply("Server said: no such nick")
             return
         if "330" in info:
-            event.reply("{0} {2} {1}".format(*info["330"]))
+            event.reply("{nick}!{username}@{host} {2} {1}".format(*info["330"],
+                nick=info["RPL_WHOISUSER"][0],
+                username=info["RPL_WHOISUSER"][1],
+                host=info["RPL_WHOISUSER"][2]
+                ))
         else:
-            event.reply("{0} is not logged in".format(nick))
+            event.reply("{nick}!{username}@{host} is not logged in".format(
+                nick=info["RPL_WHOISUSER"][0],
+                username=info["RPL_WHOISUSER"][1],
+                host=info["RPL_WHOISUSER"][2]
+                ))
         #event.reply("Whois info for %s:" % nick)
         #for command, params in info.iteritems():
         #    event.reply("%s: %s" % (command, params))
