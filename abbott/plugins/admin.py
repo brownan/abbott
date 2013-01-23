@@ -578,7 +578,7 @@ class IRCAdmin(CommandPluginSuperclass):
     @require_channel
     def holdop(self, event, match):
         channel = event.channel
-        minutes = match.groupdict()['time']
+        minutes = int(match.groupdict()['time'])
 
         try:
             self.transport.issue_request("ircop.become_op", channel, minutes)

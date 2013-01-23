@@ -178,7 +178,7 @@ class OpProvider(EventWatcher, BotPlugin):
         for operation in self.CONNECTOR_REQS | self.OTHER_REQS:
             self.provides_request("ircop.{0}".format(operation))
 
-        self.listen_for_event("ircutil.hasop.acquired")
+        self.listen_for_event("ircutil.hasop.*")
 
     def reload(self):
         super(OpProvider, self).reload()
@@ -246,10 +246,14 @@ class OpProvider(EventWatcher, BotPlugin):
         
         """
         while self.op_until[channel] - time.time() > 0:
-            yield self.wait_for(timeout=self.op_until[channel] - time.time())
-
-        if not (yield self.transport.issue_request("irc.has_op", channel)):
-            return
+            if (yield self.wait_for(
+                    Event("irc.hasop.lost", channel=channel),
+                    timeout=self.op_until[channel] - time.time())
+                    ):
+                # Lost op by something else? okay fine cancel this
+                log.msg("Op cancelled before timer. Did you do that?")
+                self.op_until[channel] = time.time()
+                return
 
         log.msg("op_until reached: issuing a -o mode request in {0}".format(channel))
         self._do_mode(channel, "-o",
@@ -318,7 +322,10 @@ class OpProvider(EventWatcher, BotPlugin):
             # should add one
             if self.config["opmethod"][channel].get("op"):
                 # Yes a connector is defined.
-                modelist.append(("-o", mynick))
+
+                if self.op_until[channel] < time.time():
+                    # And yes, we're not currently in hold-op mode
+                    modelist.append(("-o", mynick))
 
         # Loop through all the mode requests and combine them to submit them to
         # the server in batch.

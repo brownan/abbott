@@ -357,6 +357,8 @@ class HasOp(BotPlugin):
             # Op gone
             log.msg("Lost op on {0}".format(event.channel))
             self.has_op[event.channel] = False
+            self.transport.send_event(Event("ircutil.hasop.lost",
+                channel=event.channel))
 
 class ChanMode(EventWatcher, BotPlugin):
     """A simple plugin that provides channel mode information to other channels

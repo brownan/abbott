@@ -16,7 +16,7 @@ except ImportError:
     raise
 
 from ..command import CommandPluginSuperclass, require_channel
-from ..pluginbase import EventWatcher
+from ..pluginbase import EventWatcher, non_reentrant
 from ..transport import Event
 from . import ircop
 
@@ -85,7 +85,7 @@ def weighted_random_choice(seq, weight):
 
 
 class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
-    REQUIRES = ["ircop.OpProvider"]
+    REQUIRES = ["ircop.OpProvider", "ircutil.Names"]
     def __init__(self, *args):
         self.started = False
         self.timer = None
@@ -164,6 +164,8 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             self.timer.cancel()
 
         self.started = False
+
+        super(VoiceOfTheDay, self).stop()
 
     def reload(self):
         super(VoiceOfTheDay, self).reload()
@@ -279,6 +281,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             log.msg("Was going to do VOTD but the channel is active. Waiting %s seconds and trying again"%towait)
             self.timer = reactor.callLater(towait, self._timer_up)
 
+    @non_reentrant() # since this method can take a while, sanity against an admin doing a bunch of !votd draws
     @defer.inlineCallbacks
     def _do_votd(self, channel=None):
         # Assume the timer is already None or has fired to call this method
@@ -297,7 +300,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         # Gain op here
         try:
             # Enough time to say everything we need to say
-            yield self.transport.issue_request("ircop.become_op", 20)
+            yield self.transport.issue_request("ircop.become_op", channel, 20)
         except ircop.OpFailed, e:
             say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
             log.msg("Error while un-voicing previous voice. Bailing. "  + str(e))
@@ -505,24 +508,17 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             event.reply("who?")
             return
 
-        event.reply("okay...")
 
-        e = Event("irc.do_mode",
-                channel=channel,
-                set=False,
-                modes="v",
-                user=requestor,
-                )
-        if not (yield self._send_as_op(e)):
-            log.msg("Error while un-voicing previous voice. Bailing")
+        self.transport.issue_request("ircop.devoice", channel=channel, target=requestor)
+        try:
+            yield self.transport.issue_request("ircop.voice", channel=channel, target=target)
+        except ircop.OpFailed, e:
+            event.reply("Oops, something went wrong and I could not change the channel mode")
+            log.msg(str(e))
             return
-        e = Event("irc.do_mode",
-                channel=channel,
-                set=True,
-                modes="v",
-                user=target,
-                )
-        self._send_as_op(e)
+
+        event.reply("Bam!")
+        
         self.config["currentvoice"] = target
         self.config.save()
 
