@@ -462,13 +462,14 @@ class IRCAdmin(CommandPluginSuperclass):
             # Just a nick was given.
             do_kick = True
 
-        # We have to issue the kick before the mode request. The kick will
-        # acquire op, and the mode request will deop in the same request as the
-        # ban. If it were the other way around, it would get op, issue the ban
-        # and deop, then op to do the kick.
+        # We don't yield for the kick event. Yielding for an ircop event will
+        # wait until op is acquired before returning, so that any errors
+        # acquiring op are propagated to the caller. In this case, since we
+        # will be issuing a mode request directly below, we'll get errors from
+        # that. Plus, this way, the two requests will be combined.
         if do_kick:
             log.msg("issuing kick")
-            yield self.transport.issue_request("ircop.kick",
+            self.transport.issue_request("ircop.kick",
                     channel=channel,
                     target=nick,
                     reason=reason or ("Requested by " + event.user.split("!")[0]),

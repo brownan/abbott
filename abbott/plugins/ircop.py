@@ -103,15 +103,29 @@ class ChanservConnector(BotPlugin):
             ))
 
 class OpProvider(EventWatcher, BotPlugin):
-    """Provides a unified interface to other plugins to various operator tasks.
-    Provides the following requests in the form of ircop.X where X is one of:
-    op, deop, voice, devoice, quiet, unquiet, ban, unban, kick, topic. All take
-    a first parameter: channel. All except topic take a second parameter: a
-    hostmask or nick.
+    """Provides a unified interface for other plugins to various IRC operator
+    tasks.  Provides the following requests in the form of ircop.X where X is
+    one of: op, deop, voice, devoice, quiet, unquiet, ban, unban, kick, topic.
+    All take a first parameter: channel. All except topic take a second
+    parameter: a hostmask or nick.
 
     Also provides ircop.become_op which takes two parameters: a channel name
     and a duration, in seconds. When called, the bot will attempt to acquire op
     status in the given channel and  hold it for (at least) the given duration.
+
+    Each request will try to acquire op before returning, and raise an OpFailed
+    exception if Op cannot be acquired. Requests are internally buffered and
+    this plugin will attempt to issue all requests at once, and then deop.
+
+    If a caller wishes to submit more than one event, it should submit all but
+    the last without waiting for the returned deferred to fire, and then wait
+    on the last one. The reason is so that all the requests get submitted at
+    the same time. If a caller waits for one request to return, then that means
+    op has been acquired and the submitted request could be processed at any
+    moment. If the request is processed before the next submitted request, then
+    the bot will be forced to op a second time. Minimize the chances by not
+    waiting for any but the last request. (or wait for none of them if you
+    don't care about catching and handling errors)
 
     """
     REQUIRES = ["ircutil.HasOp", "ircutil.ChanMode"]
@@ -135,20 +149,36 @@ class OpProvider(EventWatcher, BotPlugin):
     def start(self):
         super(OpProvider, self).start()
 
-        # A timestamp that we should hold op until, tracked per-channel. Used
-        # to keep track of op requests from the become_op request call.
+        # A unix timestamp that we should hold op until, tracked per-channel.
+        # Used to keep track of op requests from the become_op request call.
         self.op_until = defaultdict(float)
+
+        # A unix timestamp for when we should process the mode and event
+        # buffers. Set by _set_buffer_processor_timer
+        self.buffer_timer = defaultdict(float)
+
+        # holds a timer which, when expired, will process the mode and event
+        # buffers
+        self.buffer_timer = defaultdict(float)
 
         # A per-channel buffer of mode requests that we will fulfill shortly.
         # This is held so that we may de-duplicate mode requests. Each item is
         # a tuple: (mode, argument), where argument may be None.
         self.mode_buffer = defaultdict(set)
 
+        # A per-channel event buffer, holding events that we are going to emit
+        # once we gain op. These events are held explicitly in this buffer, as
+        # opposed to having each request method block waiting for op, so that
+        # we can guarantee the event_buffer is processed before the
+        # mode_buffer. This is important because the deop request will be part
+        # of the mode buffer, and we can't deop before all events are
+        # submitted. Each set holds Event objects
+        self.event_buffer = defaultdict(set)
+
         for operation in self.CONNECTOR_REQS | self.OTHER_REQS:
             self.provides_request("ircop.{0}".format(operation))
 
         self.listen_for_event("ircutil.hasop.acquired")
-        self.listen_for_event("ircop.mode_buffer_emptied")
 
     def reload(self):
         super(OpProvider, self).reload()
@@ -207,13 +237,12 @@ class OpProvider(EventWatcher, BotPlugin):
 
     @non_reentrant(channel=1)
     @defer.inlineCallbacks
-    def _deop(self, channel):
-        """Issues a deop request, either immediately, or once the timer
-        expires
+    def _deop_later(self, channel):
+        """Waits until the current time reaches the timestamp stored in
+        self.op_until, and then issues a deop request
 
-        This is only called from _wait_for_op, but is implemented as a second
-        method with inlineCallbacks so that it can go ahead and return even if
-        this method continues to wait out the timer
+        This is called from _do_become_op() after setting
+        self.op_until[channel] to some timestamp in the future.
         
         """
         while self.op_until[channel] - time.time() > 0:
@@ -222,27 +251,113 @@ class OpProvider(EventWatcher, BotPlugin):
         if not (yield self.transport.issue_request("irc.has_op", channel)):
             return
 
-        log.msg("Deopping: issuing a -o mode request")
+        log.msg("op_until reached: issuing a -o mode request in {0}".format(channel))
         self._do_mode(channel, "-o",
                 (yield self.transport.issue_request("irc.getnick")),
-                # hold op for at most 1 second so that any non-mode operations
-                # go through
-                delay=1
                 )
-        # It may be tempting to set the delay parameter to _do_mode() here to
-        # configure how long the bot holds op, similar to the behavior of the
-        # old admin plugin where any op-acquisition would hold it for a
-        # configured amount of time after it was last requested.
-        # However, this wouldn't do exactly the same thing. Setting the delay
-        # only puts an upper bound on the amount of time you're willing to wait
-        # for the mode request. So a 10 minute timer just means it will flush
-        # the buffer after 10 minutes if nothing else triggers it. Any other
-        # mode requests with smaller triggers will flush the entire buffer
-        # including the deop request. May still be desired behavior, but it's
-        # not the same as the old behavior.
 
-    ### The following method implements operations that can be handled by a
-    ### connector
+    def _set_buffer_processor_timer(self, channel):
+        """Indicates an item has been added to the buffer and we should process
+        it shortly. (x seconds after the last call to this method)
+
+        Request handlers should call this method after adding an item to the
+        mode or event buffer.
+
+        """
+        # The time to wait here pretty much doesn't matter, because as a
+        # minimum we must wait for chanserv to respond and op us, which
+        # typically takes around 2 seconds, and could be as many as 20.
+        self.buffer_timer[channel] = time.time() + 0.5
+        self._wait_buffer_processor_timer(channel)
+
+    @non_reentrant(channel=1)
+    @defer.inlineCallbacks
+    def _wait_buffer_processor_timer(self, channel):
+        """Called by _set_buffer_processor_timer to process the buffer when the
+        timer expires
+        
+        """
+        while self.buffer_timer[channel] - time.time() > 0:
+            yield self.wait_for(timeout=self.buffer_timer[channel] - time.time())
+
+        self._process_buffer(channel)
+
+    @non_reentrant(channel=1)
+    @defer.inlineCallbacks
+    def _process_buffer(self, channel):
+        """Processes the mode and event buffers right now
+
+        If there is a method of gaining op defined, a deop-self request will be
+        submitted as part of the last mode request sent to the server
+
+        This is called by _wait_buffer_processor_timer when the buffer timer
+        expires
+
+        """
+
+        # Acquire op here
+        yield self._wait_for_op(channel)
+
+        # Submit all events in the event buffer
+        for event in self.event_buffer.pop(channel, set()):
+            self.transport.send_event(event)
+
+        # Now process the mode buffer. We make an ordered list so that we may
+        # put a deop request at the end.
+        modelist = list(self.mode_buffer[channel])
+        self.mode_buffer[channel].clear()
+
+        # If there is a self-deop mode request in here already, re-order it to
+        # be last
+        mynick = (yield self.transport.issue_request("irc.getnick"))
+        is_self_deop = lambda x: x[0] == "-o" and x[1] == mynick
+        modelist.sort(key=is_self_deop)
+
+        if not modelist or not is_self_deop(modelist[-1]):
+            # If the last item in the mode list is not a self-deop, check if we
+            # should add one
+            if self.config["opmethod"][channel].get("op"):
+                # Yes a connector is defined.
+                modelist.append(("-o", mynick))
+
+        # Loop through all the mode requests and combine them to submit them to
+        # the server in batch.
+        modeline = ""
+        params = []
+        for i, modereq in enumerate(modelist):
+            if len(modereq[0]) == 1:
+                modeline += "+"+modereq[0]
+            elif len(modereq[0]) == 2:
+                modeline += modereq[0]
+            else:
+                log.msg("Warning: Invalid mode request in buffer: {0!r}. Ignoring.".format(modereq))
+                continue
+
+            if modereq[1]:
+                params.append(modereq[1])
+
+            # If this was the last of the buffer or we've accumulated 3
+            # requests, send them to the server. The length below is 6 because
+            # there are 2 chars per mode request, the + or -, and the letter.
+            if i == len(modelist)-1 or len(modeline) >= 6:
+                # Send the mode line ourselves as a do_raw because do_mode can
+                # only set or unset one thing at a time.
+                log.msg("Sending mode requests {0} {1}".format(modeline, params))
+                self.transport.send_event(Event("irc.do_raw",
+                    line="MODE {channel} {modeline} {params}".format(
+                        channel=channel,
+                        modeline=modeline,
+                        params=" ".join(params),
+                        )))
+                modereq = ""
+                params = []
+        log.msg("buffers emptied for {0}".format(channel))
+
+
+
+    ### The following methods implement the request handlers exported to other
+    ### plugins
+
     @defer.inlineCallbacks
     def _do_connector_operation(self, operation, channel, target):
         """Handles the operations that require OP but can be handled by a
@@ -287,35 +402,31 @@ class OpProvider(EventWatcher, BotPlugin):
                  }
         if operation in modes:
             # Delegate
-            self._do_mode(channel, modes[operation], param=target)
+            yield self._do_mode(channel, modes[operation], param=target)
 
         elif operation == "topic":
             # Acquire op if and change the topic. We know we need op because we
             # already checked for +t at the beginning of this method.
             yield self._wait_for_op(channel)
-            self.transport.send_event(Event("irc.do_topic",
+            self.event_buffer[channel].add(Event("irc.do_topic",
                 channel=channel,
                 topic=target,))
-            self._deop(channel)
+            self._set_buffer_processor_timer(channel)
         else:
             # Could happen if we defined more connector operations than we have
             # coded handlers for in this method.
             raise Exception("Unknown mode. This is a bug")
 
-
-    ### What follows here are methods to perform certain operations that don't
-    ### have a connector. That is, we have to do them ourselves as OP.
     @defer.inlineCallbacks
     def _do_kick(self, channel, target, reason):
         kickevent = Event("irc.do_kick", channel=channel,
                 user=target, reason=reason)
+        self.event_buffer[channel].add(kickevent)
+        self._set_buffer_processor_timer(channel)
         yield self._wait_for_op(channel)
-        log.msg("I have op. Kicking now!")
-        self.transport.send_event(kickevent)
-        self._deop(channel)
 
     @defer.inlineCallbacks
-    def _do_mode(self, channel, mode, param=None, delay=0.1):
+    def _do_mode(self, channel, mode, param=None):
         """Handles arbitrary mode requests that aren't handled by a connector.
         This method never uses a connector and will always acquire op to
         perform the mode request (may use a connector to acquire op, though).
@@ -329,71 +440,16 @@ class OpProvider(EventWatcher, BotPlugin):
         internally buffered so if you need more than one mode change simply
         issue more than one request.
 
-        the 4th optional parameter delay specifies how long it should wait for
-        other mode requests to come in before it will force the buffer flushed
-        and all outstanding mode requests are fulfilled. The mode request may
-        be fulfilled earlier. The default is 1 second.
-        
         """
+
         # Add the mode request(s) to the buffer
         self.mode_buffer[channel].add((mode, param))
 
-        # Wait delay seconds for any other mode requests to come in so we can
-        # de-duplicate the requests and make one mode request to the irc server
-        if (yield self.wait_for(Event("ircop.mode_buffer_emptied"), timeout=delay)):
-            # Something else handled it in this interval? okay bail
-            return
-
-        # Acquire op here.
+        self._set_buffer_processor_timer(channel)
         yield self._wait_for_op(channel)
-        # Now that we have op, put in a deop right now, which will recurse into
-        # this method and add the deop to the mode buffer
-        self._deop(channel)
-
-        modelist = list(self.mode_buffer[channel])
-        self.mode_buffer[channel].clear()
-
-        # If there is a self-deop mode request in here, re-order it to be last
-        mynick = (yield self.transport.issue_request("irc.getnick")),
-        modelist.sort(key=lambda x: x[0] == "-o" and x[1] == mynick)
-
-        modeline = ""
-        params = []
-        for i, modereq in enumerate(modelist):
-            if len(modereq[0]) == 1:
-                modeline += "+"+modereq[0]
-            elif len(modereq[0]) == 2:
-                modeline += modereq[0]
-            else:
-                log.msg("Warning: Invalid mode request in buffer: {0!r}. Ignoring.".format(modereq))
-                continue
-
-            if modereq[1]:
-                params.append(modereq[1])
-
-            # If this was the last of the buffer or we've accumulated 3
-            # requests, send them to the server. The length below is 6 because
-            # there are 2 chars per mode request, the + or -, and the letter.
-            if i == len(modelist)-1 or len(modeline) >= 6:
-                # Send the mode line ourselves as a do_raw because do_mode can
-                # only set or unset one thing at a time.
-                log.msg("Sending mode requests {0} {1}".format(modeline, params))
-                self.transport.send_event(Event("irc.do_raw",
-                    line="MODE {channel} {modeline} {params}".format(
-                        channel=channel,
-                        modeline=modeline,
-                        params=" ".join(params),
-                        )))
-                modereq = ""
-                params = []
-        # This signals any other instances of this method currently waiting
-        # that the buffer has been fulfilled and they should not bother
-        self.transport.send_event(Event("ircop.mode_buffer_emptied"))
-        log.msg("Mode buffer emptied")
-
 
     @defer.inlineCallbacks
     def _do_become_op(self, channel, duration):
         yield self._wait_for_op(channel)
         self.op_until[channel] = max(self.op_until[channel], time.time()+duration)
-        self._deop(channel)
+        self._deop_later(channel)

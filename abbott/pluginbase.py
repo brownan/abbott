@@ -410,7 +410,7 @@ class EventWatcher(object):
             self.__watchers[event_match.eventtype].add((event_match, d, timer))
             return d
 
-def non_reentrant(**keyargs):
+def non_reentrant(**keyargs_def):
     """This is a handy utility to decorate a defer.inlineCallbacks function and
     will prevent a second call to the function with the same key from entering
     the function.
@@ -427,7 +427,7 @@ def non_reentrant(**keyargs):
     Can only wrap methods which return a deferred or are decorated with
     defer.inlineCallbacks.
 
-    keyargs is a dictionary mapping keyword argument names (in **kwargs) to the
+    keyargs_def is a dictionary mapping keyword argument names (in **kwargs) to the
     positional index (in *args), as a way of declaring the arguments you want
     part of the key.  The positional index can be None if the argument to key
     is keyword only, not positional.  Remember, positional arguments start at 0
@@ -442,13 +442,13 @@ def non_reentrant(**keyargs):
     def decorator(func):
 
         # This maps a tuple of key arguments to a list of deferred objects
-        entrants = {}
+        entrants = defaultdict(list)
 
         @wraps(func)
         def new_func(*args, **kwargs):
             # determine what our key argument tuple is.
             key_arguments = []
-            for kwarg, posarg in keyargs.iteritems():
+            for kwarg, posarg in keyargs_def.iteritems():
                 if posarg is not None and len(args) > posarg:
                     key_arguments.append(args[posarg])
                 elif kwarg in kwargs:
@@ -462,19 +462,19 @@ def non_reentrant(**keyargs):
 
             # Now that we have a key by which to track invocations, check our
             # entrants dict
-            if key_arguments not in entrants:
-                entrants[key_arguments] = []
-
-                real_d = func(*args, **kwargs)
-                def done(param):
-                    waiters = entrants.pop(key_arguments)
-                    for _, other_d in waiters:
-                        other_d.callback(param)
-                real_d.addBoth(done)
-
             d = defer.Deferred()
             entrants[key_arguments].append(d)
+
+            if len(entrants[key_arguments]) == 1:
+                # No existing calls to this function (because we were the
+                # first), call it and set a handler for its completion
+                real_d = func(*args, **kwargs)
+                def done(param):
+                    for other_d in entrants.pop(key_arguments):
+                        other_d.callback(param)
+                real_d.addBoth(done)
             return d
+
 
         return new_func
 
