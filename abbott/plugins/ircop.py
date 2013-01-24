@@ -180,11 +180,29 @@ class OpProvider(EventWatcher, BotPlugin):
 
         self.listen_for_event("ircutil.hasop.*")
 
+        self.listen_for_event("irc.on_join")
+
     def reload(self):
         super(OpProvider, self).reload()
         
         # Keeps a mapping of channels to a dict mapping operations to connectors.
         self.config["opmethod"] = defaultdict(dict, self.config["opmethod"])
+
+    def on_event_irc_on_join(self, event):
+        """Convenience: when we join a channel, see if this channel exists in
+        the config, and create the config items for it
+
+        """
+        channel = event.channel
+        save = False
+        defined_reqs = set(self.config["opmethod"][channel].keys())
+        undefined_reqs = self.CONNECTOR_REQS - defined_reqs
+        if undefined_reqs:
+            save = True
+            for x in undefined_reqs:
+                self.config["opmethod"][channel][x] = None
+        if save:
+            self.config.save()
 
     def incoming_request(self, reqname, *args, **kwargs):
         # Choose the appropriate handler here.
