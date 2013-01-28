@@ -14,23 +14,23 @@ IRC OP-related plugins. This is meant to replace the old admin.* plugins with a
 new, cleaned-up architecture.
 
 Outline of this module:
-* Connector plugins that interface with a method of performing IRC operations.
-  They expose one method per operation (ban, quiet, op, etc)
+* Connector plugins that interface with a method of performing IRC operator
+  operations. They expose one method per operation (quiet, deop, etc)
   - Chanserv connector: sends requests to chanserv
-  - Weechat connector: sends requests to chanserv via weechat
+  - Weechat connector: sends requests to chanserv via a local weechat fifo
 
   These plugins should be relatively lightweight. These plugins don't have any
-  return value, and never error. The chanserv connector has no way of detecting
+  return value, and never error. Some connectors may have no way of detecting
   if it didn't work, so detection of whether the request worked must happen at
   a higher level.
 
 * The OpProvider plugin provides a unified interface to OP functions. It takes
   care of choosing which connector to use (or sending a mode request directly
-  to the irc plugin itself) depending on the channel, the command, and the
-  current OP status of the bot.
+  to the irc plugin itself) depending on the channel, the command, the
+  current OP status of the bot, and the plugin's configuration.
 
   Specific features of this plugin:
-  - exposes one function per operation to other plugins: op, deop, voice,
+  - exposes to other plugins one function per operation: op, deop, voice,
     devoice, quiet, unquiet, ban, unban, kick, and set topic
   - keeps track of what it can do in which channels and how. For example, some
     channels it may can do everything through chanserv, but others it may can
@@ -39,6 +39,8 @@ Outline of this module:
     it's not needed.
   - provides a become_op() function for other plugins to force it to hold OP
     for a while
+  - Submits multiple mode requests in batch, and submits multiple operations in
+    one op session before deopping, if possible
 
 """
 
@@ -115,17 +117,25 @@ class OpProvider(EventWatcher, BotPlugin):
 
     Each request will try to acquire op before returning, and raise an OpFailed
     exception if Op cannot be acquired. Requests are internally buffered and
-    this plugin will attempt to issue all requests at once, and then deop.
+    this plugin will attempt to issue all requests at once, in batch, and then
+    deop.
 
-    If a caller wishes to submit more than one event, it should submit all but
-    the last without waiting for the returned deferred to fire, and then wait
-    on the last one. The reason is so that all the requests get submitted at
-    the same time. If a caller waits for one request to return, then that means
-    op has been acquired and the submitted request could be processed at any
-    moment. If the request is processed before the next submitted request, then
-    the bot will be forced to op a second time. Minimize the chances by not
-    waiting for any but the last request. (or wait for none of them if you
-    don't care about catching and handling errors)
+    All the request calls return as soon as op is acquired (if necessary)--
+    once the request will succeed--but this may be before the request actually
+    goes through. If a plugin wishes to submit several events, it is
+    recommended to submit them all before waiting for any of them, to ensure
+    they all go through in the same batch. It is sufficient to wait for just
+    the last request, since if there is an error acquiring OP, they would all
+    raise the same error at the same time.
+
+    (If you wait for each submitted operation, then you risk having some
+    requests processed before they are all submitted, forcing some operations
+    to re-op and process in a second batch. Requests are typically processed as
+    soon as OP is acquired, so waiting for OP to be acquired before submitting
+    another request introduces that race condition. Requests could return
+    immediately, making the batching more fool-proof, but then the caller
+    couldn't be informed of errors in acquiring OP, so this burden must be
+    placed on the caller.)
 
     """
     REQUIRES = ["ircutil.HasOp", "ircutil.ChanMode"]
@@ -142,8 +152,6 @@ class OpProvider(EventWatcher, BotPlugin):
     # implementations. Op must be acquired for these and we must do them
     # ourself; they don't have a connector implementation. These are all
     # implemented by a method of the form _do_{name}
-    # ban and unban are missing because it's just a shorthand for setting a +b
-    # mode and doing a kick.
     OTHER_REQS = frozenset(['kick', 'become_op', 'mode', 'ban', 'unban'])
 
     def start(self):
@@ -194,14 +202,11 @@ class OpProvider(EventWatcher, BotPlugin):
 
         """
         channel = event.channel
-        save = False
         defined_reqs = set(self.config["opmethod"][channel].keys())
         undefined_reqs = self.CONNECTOR_REQS - defined_reqs
         if undefined_reqs:
-            save = True
             for x in undefined_reqs:
                 self.config["opmethod"][channel][x] = None
-        if save:
             self.config.save()
 
     def incoming_request(self, reqname, *args, **kwargs):
@@ -259,7 +264,7 @@ class OpProvider(EventWatcher, BotPlugin):
         """Waits until the current time reaches the timestamp stored in
         self.op_until, and then issues a deop request
 
-        This is called from _do_become_op() after setting
+        This is only called from _do_become_op() after setting
         self.op_until[channel] to some timestamp in the future.
         
         """
@@ -268,7 +273,8 @@ class OpProvider(EventWatcher, BotPlugin):
                     Event("irc.hasop.lost", channel=channel),
                     timeout=self.op_until[channel] - time.time())
                     ):
-                # Lost op by something else? okay fine cancel this
+                # Lost op by something else? Manual intervention? okay fine
+                # cancel this
                 log.msg("Op cancelled before timer. Did you do that?")
                 self.op_until[channel] = time.time()
                 return
@@ -297,8 +303,10 @@ class OpProvider(EventWatcher, BotPlugin):
     @non_reentrant(channel=1)
     @defer.inlineCallbacks
     def _wait_buffer_processor_timer(self, channel):
-        """Called by _set_buffer_processor_timer to process the buffer when the
-        timer expires
+        """Called only by _set_buffer_processor_timer() to wait for the
+        buffer_timer to expire, and then call _process_buffer(). This is
+        implemented as a separate method with inlineCallbacks so that
+        _set_buffer_processor_timer() can return while this continues to wait.
         
         """
         while self.buffer_timer[channel] - time.time() > 0:
@@ -309,13 +317,14 @@ class OpProvider(EventWatcher, BotPlugin):
     @non_reentrant(channel=1)
     @defer.inlineCallbacks
     def _process_buffer(self, channel):
-        """Processes the mode and event buffers right now
+        """Processes the mode and event buffers right now. This is only called
+        from _wait_buffer_processor_timer(), and should not be called directly
+        by handlers. (handlers should call _set_buffer_processor_timer() unless
+        they have a reason to process the buffer *right this instant*)
 
-        If there is a method of gaining op defined, a deop-self request will be
-        submitted as part of the last mode request sent to the server
-
-        This is called by _wait_buffer_processor_timer when the buffer timer
-        expires
+        If there is a method of gaining op defined (a connector for the 'op'
+        method is set), a deop-self request will be submitted as part of the
+        last mode request sent to the server.
 
         """
 
@@ -389,8 +398,16 @@ class OpProvider(EventWatcher, BotPlugin):
     def _do_connector_operation(self, operation, channel, target):
         """Handles the operations that require OP but can be handled by a
         connector if available. Does one of: op, deop, voice, devoice, quiet,
-        unquiet, or topic (all but kick).  If we are OP in the given channel,
-        does the operation ourself.  Otherwise, uses one of the connectors.
+        unquiet, or topic. Chooses whether to use a connector or do the
+        operation ourself as appropriate.
+
+        May raise an OpFailed error if we cannot fulfill the request.
+
+        Returns once OP has been acquired (if necessary) and the request will
+        succeed (but may return before the actual operation actually goes
+        through). If you're doing many calls to this, you should only
+        yield-wait for the last call to ensure they all get processed in the
+        same batch.
         
         """
         # Special case for the topic operation: we do not need op if channel
@@ -445,14 +462,6 @@ class OpProvider(EventWatcher, BotPlugin):
             raise Exception("Unknown mode. This is a bug")
 
     @defer.inlineCallbacks
-    def _do_kick(self, channel, target, reason):
-        kickevent = Event("irc.do_kick", channel=channel,
-                user=target, reason=reason)
-        self.event_buffer[channel].add(kickevent)
-        self._set_buffer_processor_timer(channel)
-        yield self._wait_for_op(channel)
-
-    @defer.inlineCallbacks
     def _do_mode(self, channel, mode, param=None):
         """Handles arbitrary mode requests that aren't handled by a connector.
         This method never uses a connector and will always acquire op to
@@ -466,6 +475,12 @@ class OpProvider(EventWatcher, BotPlugin):
         This request can only handle one mode change per call. They are
         internally buffered so if you need more than one mode change simply
         issue more than one request.
+
+        Returns once OP has been acquired (if necessary) and the request will
+        succeed (but may return before the actual operation actually goes
+        through). If you're doing many calls to this, you should only
+        yield-wait for the last call to ensure they all get processed in the
+        same batch.
 
         """
 
@@ -487,3 +502,10 @@ class OpProvider(EventWatcher, BotPlugin):
     def _do_unban(self, channel, target):
         """A shorthand for submitting a mode request for -b"""
         return self._do_mode(channel, "-b", param=target)
+    def _do_kick(self, channel, target, reason):
+        """Gains op and performs a kick"""
+        kickevent = Event("irc.do_kick", channel=channel,
+                user=target, reason=reason)
+        self.event_buffer[channel].add(kickevent)
+        self._set_buffer_processor_timer(channel)
+        return self._wait_for_op(channel)
