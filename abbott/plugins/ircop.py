@@ -290,6 +290,12 @@ class OpProvider(EventWatcher, BotPlugin):
 
         Request handlers should call this method after adding an item to the
         mode or event buffer.
+        
+        For items that will require acquiring OP, the caller should also call
+        self._wait_for_op() after this method, so that we can put in the OP
+        request and have that pending while the code goes on to possibly issue
+        more requests and possibly add more items to the buffer, which will be
+        batched in the same request if they come in before OP is acquired.
 
         """
         # The time to wait here pretty much doesn't matter, because as a
