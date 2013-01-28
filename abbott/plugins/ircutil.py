@@ -75,7 +75,7 @@ class IRCWhois(CommandPluginSuperclass):
         if command == "RPL_WHOISUSER":
             # Start a new one
             if self.currentwhois:
-                log.err("Got a RPL_WHOISUSER but we're already in a whois!")
+                log.msg("Error: Got a RPL_WHOISUSER but we're already in a whois!")
             nick = params[1]
             self.currentwhois = nick
             self.currentinfo = {command: params[1:]}

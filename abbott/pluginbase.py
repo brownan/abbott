@@ -359,7 +359,10 @@ class EventWatcher(object):
                         self.__timers.remove(timer)
                     d.callback(event)
         finally:
-            # In a finally block in case the callback raises an error of some sort
+            # In a finally block in case the callback raises an error of some
+            # sort. Actually, I don't think callbacks raise errors to the
+            # caller (the error goes to the next errback handler) Anyways
+            # putting this in a finally block can't hurt
             for item in toremove:
                 self.__watchers[event.eventtype].remove(item)
 
@@ -412,32 +415,54 @@ class EventWatcher(object):
             return d
 
 def non_reentrant(**keyargs_def):
-    """This is a handy utility to decorate a defer.inlineCallbacks function and
-    will prevent a second call to the function with the same key from entering
-    the function.
+    """This is a handy utility to decorate a function and will prevent a second
+    call to the function with the same key from entering the function.
 
     More precisely, this function returns a decorator for a function which is
     expected to return a deferred. Only one execution of the function per key
-    is allowed. Other functions will return a new deferred which will fire upon
-    the first execution's completion (with the same value).
+    is allowed. Other functions will wait for the original invocation by
+    returning deferred which will fire upon the first invocation's completion
+    (with the same value).
 
     This is a handy way of de-duplicating effort. If two functions both call
     some kind of method that needs to wait for a result, then only one instance
     of the method is actually invoked, but they both get the answer.
 
-    Can only wrap methods which return a deferred or are decorated with
-    defer.inlineCallbacks.
+    This decorator can only wrap methods which return a deferred (including
+    functions decorated with defer.inlineCallbacks).
 
     keyargs_def is a dictionary mapping keyword argument names (in **kwargs) to the
     positional index (in *args), as a way of declaring the arguments you want
     part of the key.  The positional index can be None if the argument to key
     is keyword only, not positional.  Remember, positional arguments start at 0
-    and that includes the 'self' paramater of methods.
+    and that includes the 'self' paramater of methods. If the keyword and
+    positional arguments do not match, behavior is undefined.
 
     example:
-    @non_reentrant(channel=1)
-    def compute_value(self, channel, param, somethingelse):
-        ...
+
+        @non_reentrant(channel=1)
+        @defer.inlineCallbacks
+        def compute_value(self, channel, param, somethingelse):
+            ...
+            yield something()
+            ...
+            defer.returnValue(value)
+
+    If another function calls compute_value() while it was waiting for
+    something() to return (and they were both called with the same channel),
+    then the new caller will wait for the existing invocation of
+    compute_value() to finish, at which point both callers get the return value
+    `value`.
+
+    (Warning, any non-key arguments are ignored for all but the original
+    invocation, since the function isn't called more than once at a time.)
+
+    Also note that it is unnecessary to include the `self` parameter of methods
+    only because in this framework there is only ever once instance of each
+    plugin object. If you are using this decorator in other situations, you may
+    need to declare self=0. The reason is since the entrants are stored in a
+    closure of the decorator function, it is stored per-class, not
+    per-instance.
 
     """
     def decorator(func):
@@ -449,6 +474,10 @@ def non_reentrant(**keyargs_def):
         def new_func(*args, **kwargs):
             # determine what our key argument tuple is.
             key_arguments = []
+            # note that this stores key arguments in the order returned from
+            # this dictionary, which depends the order being consistent.
+            # Dictionary order is guaranteed not to change as long as it
+            # doesn't mutate.
             for kwarg, posarg in keyargs_def.iteritems():
                 if posarg is not None and len(args) > posarg:
                     key_arguments.append(args[posarg])
