@@ -410,7 +410,7 @@ class ChanMode(EventWatcher, BotPlugin):
         mode, params = reply.params[2], reply.params[3:]
 
         self.mode[channel] = (mode, params)
-        log.msg("mode is {0} {1}".format(mode, " ".join(params)))
+        log.msg("mode in {chan} is {0} {1}".format(mode, " ".join(params), chan=channel))
 
     @defer.inlineCallbacks
     def on_event_irc_on_mode_change(self, event):
