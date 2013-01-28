@@ -304,6 +304,13 @@ class IRCAdmin(CommandPluginSuperclass):
                 helptext="Sets a channel mode",
                 )
 
+        self.install_command(
+                cmdname="m",
+                permission="irc.op.m",
+                callback=self.moderatedmode,
+                helptext="Sets +m on the channel to quiet it in an emergency",
+                )
+
     @defer.inlineCallbacks
     def _nick_to_hostmask(self, nick):
         """Takes a nick or a hostmask and returns a parameter suitable for the
@@ -624,16 +631,18 @@ class IRCAdmin(CommandPluginSuperclass):
         defer.returnValue(True)
 
     @require_channel
+    @defer.inlineCallbacks
     def holdop(self, event, match):
         channel = event.channel
         minutes = int(match.groupdict()['time'])
 
         try:
-            self.transport.issue_request("ircop.become_op", channel, minutes)
+            yield self.transport.issue_request("ircop.become_op", channel, minutes)
         except ircop.OpFailed, e:
             event.reply(str(e))
 
     @require_channel
+    @defer.inlineCallbacks
     def mode(self, event, match):
         channel = event.channel
         gd = match.groupdict()
@@ -641,10 +650,23 @@ class IRCAdmin(CommandPluginSuperclass):
         param = gd['param']
 
         try:
-            self.transport.issue_request("ircop.mode", channel, mode, param)
+            yield self.transport.issue_request("ircop.mode", channel, mode, param)
         except ircop.OpFailed, e:
             event.reply(str(e))
 
+    @require_channel
+    @defer.inlineCallbacks
+    def moderatedmode(self, event, match):
+        channel = event.channel
+        nick = event.user.split("!",1)[0]
+
+        try:
+            self.transport.issue_request("ircop.mode", channel, "+m")
+            yield self.transport.issue_request("ircop.op", channel, nick)
+        except ircop.OpFailed, e:
+            event.reply(str(e))
+        else:
+            log.msg("Moderated mode on")
 
 class IRCTopic(CommandPluginSuperclass):
     """Topic manipulation commands.
