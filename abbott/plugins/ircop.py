@@ -162,11 +162,7 @@ class OpProvider(EventWatcher, BotPlugin):
         self.op_until = defaultdict(float)
 
         # A unix timestamp for when we should process the mode and event
-        # buffers. Set by _set_buffer_processor_timer
-        self.buffer_timer = defaultdict(float)
-
-        # holds a timer which, when expired, will process the mode and event
-        # buffers
+        # buffers. Set by _set_buffer_processor_timer()
         self.buffer_timer = defaultdict(float)
 
         # A per-channel buffer of mode requests that we will fulfill shortly.
