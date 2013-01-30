@@ -341,4 +341,4 @@ class Owner(CommandPluginSuperclass):
         if "owner" in self.config:
             event.reply(u"My owner is " + self.config['owner'])
         else:
-            event.reply(u"I... I don't know! \me cries")
+            event.reply(u"I... I don't know! /me cries")
