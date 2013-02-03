@@ -43,49 +43,10 @@ Ideas for the Future!
   clientobj.supported somewhere, I think. I just need to find the right value
   and use it.
 
-* ircop: If a connector mode operation is submitted, but we're not op, but op
-  is pending (for another request previously submitted), then we should skip
-  the connector and batch it in with the rest of the requests when we get OP so
-  that less total lines are printed.
-
-  Actually it'd be better to go even further: I should buffer connector
-  requests as well instead of submitting them as soon as they come in. Then, in
-  processing the buffer, it should use the connector only if ALL items in the
-  buffer can be fulfilled with a connector.  Otherwise, OP and do them all
-  ourself in one batch. This way the operations don't have to be submitted in
-  any particular order for this to work.
-
-  This is a good idea for another reason. Since it is recommended not to
-  yield-wait for any but the final request when a plugin issues several, what
-  if the first request requires op but the second is fulfilled with a
-  connector? The caller would never get any errors.
-
-* Related to the above: error reporting in ircop is kind weird right now and
-  requires plugins to wait for OP to be acquired before they regain control if
-  they want to know about errors in the process. An alternative may be to pass
-  an error handler in to the request as a parameter. This way the request
-  handlers can return control to the caller immediately, so the caller can
-  issue more requests into the batch, but the caller can still have control
-  over how to handle errors.
-
-  I need to think about this a bit more. Is this really much/any different from
-  returning a Deferred object and attaching an errback to it?
-
-  This will be a problem if we want to buffer connector-handled requests.  They
-  may error right away if they need op, or may error later when they try to
-  call the connector but it isn't loaded. I think I need a way to pass an
-  error-reporting function around so that errors that come in now or later can
-  all go to the same place.
-
-  Here's what I think: the deferreds returned from the requests currently
-  convey two pieces of information: if an error occurs acquiring op (the
-  errback is called), and *when* op is acquired (the callback is called).  This
-  is what it should do: it should errback for *any* errors along the chain, and
-  callback when the requested operation finishes completely. It would then be
-  obvious that callers shouldn't wait for the first of several operations, but
-  to submit them all then wait for one or more of them. This would mean some
-  restructuring of the entire ircop plugin though. Not that there's anything
-  wrong with that; it sounds like fun!
+* Generalize the timed actions in the admin plugin. I should be able to set +c
+  or +t and then set a timer to set -t or -c again. Besides that, it bugs me
+  that the timed operations are hard coded for only -q and -b. This seems like
+  an easy opportunity for generalization.
 
 * Long term: redo the command plugin workflow. Instead of having command
   plugins inherit from a special base class which takes care of parsing

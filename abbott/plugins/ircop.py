@@ -115,27 +115,24 @@ class OpProvider(EventWatcher, BotPlugin):
     and a duration, in seconds. When called, the bot will attempt to acquire op
     status in the given channel and  hold it for (at least) the given duration.
 
-    Each request will try to acquire op before returning, and raise an OpFailed
-    exception if Op cannot be acquired. Requests are internally buffered and
-    this plugin will attempt to issue all requests at once, in batch, and then
-    deop.
+    Each request returns a deferred that will callback when the operation
+    succeeds. The deferred may errback with an OpFailed error if the operation
+    required the bot gain OP but OP could not be acquired.
 
-    All the request calls return as soon as op is acquired (if necessary)--
-    once the request will succeed--but this may be before the request actually
-    goes through. If a plugin wishes to submit several events, it is
-    recommended to submit them all before waiting for any of them, to ensure
-    they all go through in the same batch. It is sufficient to wait for just
-    the last request, since if there is an error acquiring OP, they would all
-    raise the same error at the same time.
+    The plugin will automatically deop itself after performing operations if
+    the config defines a way to gain OP.
 
-    (If you wait for each submitted operation, then you risk having some
-    requests processed before they are all submitted, forcing some operations
-    to re-op and process in a second batch. Requests are typically processed as
-    soon as OP is acquired, so waiting for OP to be acquired before submitting
-    another request introduces that race condition. Requests could return
-    immediately, making the batching more fool-proof, but then the caller
-    couldn't be informed of errors in acquiring OP, so this burden must be
-    placed on the caller.)
+    Requests are internally buffered and batched so that several simultaneous
+    requests will all be submitted with one OP+DEOP cycle. For this to work,
+    callers should submit all requests before waiting for any of them to
+    callback/errback.
+
+    (If you wait for each submitted operation, then you end up waiting for each
+    one to be completely processed before the next one, forcing each operation
+    to re-op and process in individual batches. If the API were changed so that
+    requests return immediately, this would make the batching more fool-proof
+    for callers, but then the caller couldn't be informed of errors in
+    acquiring OP. Therefore, this burden must be placed on the caller.)
 
     """
     REQUIRES = ["ircutil.HasOp", "ircutil.ChanMode"]
@@ -165,25 +162,26 @@ class OpProvider(EventWatcher, BotPlugin):
         # buffers. Set by _set_buffer_processor_timer()
         self.buffer_timer = defaultdict(float)
 
-        # A per-channel buffer of mode requests that we will fulfill shortly.
-        # This is held so that we may de-duplicate mode requests. Each item is
-        # a tuple: (mode, argument), where argument may be None.
+        # This plugin keeps three internel buffers per channel, stored in the
+        # following three attribute variables. Each is a dict mapping channel
+        # names to a set of tuples.
+        # mode_buffer sets contain (mode, argument, deferred)
+        # event_buffer sets contain (Event, deferred)
+        # connector_buffer sets contain (operation_name, param, deferred)
+        # The typical workflow is for handler methods to add an item to one or
+        # more of the buffers and then call _set_buffer_processor_timer(),
+        # which will set a timer to process the buffer after a brief delay.
         self.mode_buffer = defaultdict(set)
-
-        # A per-channel event buffer, holding events that we are going to emit
-        # once we gain op. These events are held explicitly in this buffer, as
-        # opposed to having each request method block waiting for op, so that
-        # we can guarantee the event_buffer is processed before the
-        # mode_buffer. This is important because the deop request will be part
-        # of the mode buffer, and we can't deop before all events are
-        # submitted. Each set holds Event objects
         self.event_buffer = defaultdict(set)
+        self.connector_buffer = defaultdict(set)
 
+        # Register the requests we handle
         for operation in self.CONNECTOR_REQS | self.OTHER_REQS:
             self.provides_request("ircop.{0}".format(operation))
 
-        self.listen_for_event("ircutil.hasop.*")
-
+        # Events we listen for
+        self.listen_for_event("ircutil.hasop.acquired")
+        self.listen_for_event("ircutil.hasop.lost")
         self.listen_for_event("irc.on_join")
 
     def reload(self):
@@ -206,6 +204,7 @@ class OpProvider(EventWatcher, BotPlugin):
             self.config.save()
 
     def incoming_request(self, reqname, *args, **kwargs):
+        # Request dispatch
         # Choose the appropriate handler here.
         reqname = reqname.split(".")[-1]
         if reqname in self.CONNECTOR_REQS:
@@ -219,9 +218,10 @@ class OpProvider(EventWatcher, BotPlugin):
     @defer.inlineCallbacks
     def _wait_for_op(self, channel):
         """Returns a deferred that fires when the bot has op in the named
-        channel, which may be immediately. If the bot does not have op, it will
-        be requested and the defer will fire when it is acquired. May error if
-        op is un-acquirable in the channel.
+        channel, which may be immediately if the bot already has OP. If the bot
+        does not have op, it will be requested and the defer will fire when it
+        is acquired. Errbacks with an OpFailed error if op is un-acquirable in
+        the channel.
 
         """
         # If we have op, just return immediately.
@@ -229,9 +229,9 @@ class OpProvider(EventWatcher, BotPlugin):
             return
         # Start an event watcher immediately to help curb race conditions
         # involved in op being acquired after we check but before the event
-        # watcher is active. It's probably not even possible, but it doesn't
-        # hurt to do this anyways. (notice how we don't yield-wait for this
-        # until after)
+        # watcher is active. Actually I don't think a race condition is even
+        # possible, but it doesn't hurt to do this anyways. (notice how we
+        # don't yield-wait for this until after)
         op_waiter = self.wait_for(Event("ircutil.hasop.acquired"), timeout=30)
 
         connector = self.config["opmethod"][channel].get("op")
@@ -247,12 +247,13 @@ class OpProvider(EventWatcher, BotPlugin):
                     nick = nick,
                     )
         except NotImplementedError:
-            raise OpFailed("Connector {0} is not loaded, does not exist, or does not provide 'op'".format(connector))
+            log.msg("Error: Connector {0} is not loaded, does not exist, or does not provide 'op'".format(connector))
+            raise OpFailed("I am not configured correctly to acquire OP on {0}".format(channel))
 
         # Wait for op to be acquired by waiting for the event watcher started
         # at the beginning of this method.
         if not (yield op_waiter):
-            raise OpFailed("Timeout in waiting for op request to be fulfilled")
+            raise OpFailed("Timeout waiting for OP. Do I have the correct permission with e.g. Chanserv?")
 
     @non_reentrant(channel=1)
     @defer.inlineCallbacks
@@ -260,9 +261,13 @@ class OpProvider(EventWatcher, BotPlugin):
         """Waits until the current time reaches the timestamp stored in
         self.op_until, and then issues a deop request
 
-        This is only called from _do_become_op() after setting
-        self.op_until[channel] to some timestamp in the future.
-        
+        This should be called after setting self.op_until[channel] to some
+        timestamp in the future. Right now it is only called from
+        _do_become_op().
+
+        Returns a deferred that fires when we deop. but it doesn't make much
+        sense to wait for it. at least not in the context of _do_become_op()       
+
         """
         while self.op_until[channel] - time.time() > 0:
             if (yield self.wait_for(
@@ -276,29 +281,33 @@ class OpProvider(EventWatcher, BotPlugin):
                 return
 
         log.msg("op_until reached: issuing a -o mode request in {0}".format(channel))
-        self._do_mode(channel, "-o",
+        yield self._do_mode(channel, "-o",
                 (yield self.transport.issue_request("irc.getnick")),
                 )
 
     def _set_buffer_processor_timer(self, channel):
-        """Indicates an item has been added to the buffer and we should process
-        it shortly. (x seconds after the last call to this method)
+        """Indicates an item has been added to one of the buffers and we should
+        process it shortly. (x seconds after the last call to this method)
 
         Request handlers should call this method after adding an item to the
         mode or event buffer.
         
-        For items that will require acquiring OP, the caller should also call
-        self._wait_for_op() after this method, so that we can put in the OP
-        request and have that pending while the code goes on to possibly issue
-        more requests and possibly add more items to the buffer, which will be
-        batched in the same request if they come in before OP is acquired.
+        For items that will require acquiring OP, it is recommended the caller
+        also call (but not wait for) self._wait_for_op() after this method, so
+        that an OP request is submitted immediately and we'll have that pending
+        while the code goes on to possibly issue more requests and possibly add
+        more items to the buffers, which will then be batched together if they
+        come in before OP is acquired.
+
+        This method returns no value, and returns immediately.
 
         """
         # The time to wait here pretty much doesn't matter, because as a
         # minimum we must wait for chanserv to respond and op us, which
         # typically takes around 2 seconds, and could be as many as 20.
-        # It should still be small so that requests when we're holding op or
-        # are already op go through quickly
+        # It should still be small, however, so that requests when we're
+        # already OP go through quickly, but still leaves enough time to yield
+        # to other code that may want to submit more requests
         self.buffer_timer[channel] = time.time() + 0.2
         self._wait_buffer_processor_timer(channel)
 
@@ -308,7 +317,8 @@ class OpProvider(EventWatcher, BotPlugin):
         """Called only by _set_buffer_processor_timer() to wait for the
         buffer_timer to expire, and then call _process_buffer(). This is
         implemented as a separate method with inlineCallbacks so that
-        _set_buffer_processor_timer() can return while this continues to wait.
+        _set_buffer_processor_timer() can return while this continues to wait
+        asynchronously.
         
         """
         while self.buffer_timer[channel] - time.time() > 0:
@@ -325,17 +335,72 @@ class OpProvider(EventWatcher, BotPlugin):
         they have a reason to process the buffer *right this instant*)
 
         If there is a method of gaining op defined (a connector for the 'op'
-        method is set), a deop-self request will be submitted as part of the
-        last mode request sent to the server.
+        method is set) and we're not holding op, a deop-self request will be
+        submitted as part of the last mode request sent to the server.
 
         """
+        already_opped = (yield self.transport.issue_request("irc.has_op",
+            channel))
+        # If there are items in the connector_buffer but the other buffers are
+        # empty, then process them with a connector and exit. Otherwise, since
+        # we'll have to gain OP anyways, skip using the connector and do
+        # everything ourself.
+        if (
+                self.connector_buffer[channel]
+                and (not self.event_buffer[channel])
+                and (not self.mode_buffer[channel])
+                and not already_opped
+                ):
+            # Send all connector items to their connector plugins and callback
+            # the deferreds.
+            for operation, param, d in self.connector_buffer.pop(channel, set()):
+                try:
+                    self.transport.issue_request(
+                            "connector.{0}.{1}".format(
+                                self.config['opmethod'][channel][operation],
+                                operation),
+                            channel,
+                            param,
+                            )
+                except NotImplementedError:
+                    log.msg("Error: Connector {0} is not loaded, does not exist, or does not provide '{1}'".format(
+                        self.config['opmethod'][channel][operation],
+                        operation))
+                    d.errback(OpFailed("I am not configured correctly to do {1} on {0}".format(channel, operation)))
+                else:
+                    d.callback(None)
+            return
 
-        # Acquire op here
-        yield self._wait_for_op(channel)
+        # Acquire op here. We'll need it.
+        try:
+            yield self._wait_for_op(channel)
+        except OpFailed, e:
+            # We need OP but couldn't get it. Send an errback to all items in
+            # the mode buffer and event buffer. Send all connector buffer items
+            # to their connectors (because we can still do them).
+            for mode, arg, d in self.mode_buffer.pop(channel, set()):
+                d.errback(e)
+            for event, d in self.event_buffer.pop(channel, set()):
+                d.errback(e)
+            for operation, param, d in self.connector_buffer.pop(channel, set()):
+                self.transport.issue_request(
+                        "connector.{0}.{1}".format(
+                            self.config['opmethod'][channel][operation],
+                            operation),
+                        param)
+                d.callback(None)
+            return
+
+        # At this point we're doing everything ourself as OP. Convert the
+        # connector operations into a mode or an event item and add them to
+        # those buffers.
+        for operation, param, d in self.connector_buffer.pop(channel, set()):
+            self._convert_connector(operation, channel, param, d)
 
         # Submit all events in the event buffer
-        for event in self.event_buffer.pop(channel, set()):
+        for event, d in self.event_buffer.pop(channel, set()):
             self.transport.send_event(event)
+            d.callback(None)
 
         # Now process the mode buffer. We make an ordered list so that we may
         # put a deop request at the end.
@@ -348,15 +413,19 @@ class OpProvider(EventWatcher, BotPlugin):
         is_self_deop = lambda x: x[0] == "-o" and x[1] == mynick
         modelist.sort(key=is_self_deop)
 
-        if not modelist or not is_self_deop(modelist[-1]):
-            # If the last item in the mode list is not a self-deop, check if we
-            # should add one
-            if self.config["opmethod"][channel].get("op"):
-                # Yes a connector is defined.
-
-                if self.op_until[channel] < time.time():
-                    # And yes, we're not currently in hold-op mode
-                    modelist.append(("-o", mynick))
+        # Check if we should insert a deop request to the end of the mode list
+        if (
+                # if there's not already one...
+                not modelist or not is_self_deop(modelist[-1])
+                # ... and if a connector is defined for OP
+                and self.config["opmethod"][channel].get("op")
+                # ... and we're not in "hold op" mode
+                and self.op_until[channel] < time.time()
+                # ... and if we had to acquire OP ourself to fulfill this
+                # request
+                and not already_opped
+                ):
+            modelist.append(("-o", mynick, defer.Deferred()))
 
         # Loop through all the mode requests and combine them to submit them to
         # the server in batch.
@@ -389,9 +458,39 @@ class OpProvider(EventWatcher, BotPlugin):
                         )))
                 modereq = ""
                 params = []
+        for _,_,d in modelist:
+            d.callback(None)
         log.msg("buffers emptied for {0}".format(channel))
 
+    def _convert_connector(self, operation, channel, target, d):
+        """Called when a connector request cannot or will not be fulfilled by
+        the connector plugin. This method adds an item to the event buffer or
+        mode buffer.
 
+        This method defines how to perform all connector operations ourself as
+        op. (Add a new connector operation? Make sure to change this method to
+        match)
+
+        """
+        modes = {"op":      "+o",
+                 "deop":    "-o",
+                 "voice":   "+v",
+                 "devoice": "-v",
+                 "quiet":   "+q",
+                 "unquiet": "-q",
+                 }
+        if operation in modes:
+            self.mode_buffer[channel].add((modes[operation], target, d))
+
+        elif operation == "topic":
+            self.event_buffer[channel].add((
+                Event("irc.do_topic", channel=channel, topic=target),
+                d,
+            ))
+        else:
+            # Could happen if we defined more connector operations than we have
+            # coded handlers for in this method.
+            raise Exception("Unknown mode. This is a bug")
 
     ### The following methods implement the request handlers exported to other
     ### plugins
@@ -403,14 +502,6 @@ class OpProvider(EventWatcher, BotPlugin):
         unquiet, or topic. Chooses whether to use a connector or do the
         operation ourself as appropriate.
 
-        May raise an OpFailed error if we cannot fulfill the request.
-
-        Returns once OP has been acquired (if necessary) and the request will
-        succeed (but may return before the actual operation actually goes
-        through). If you're doing many calls to this, you should only
-        yield-wait for the last call to ensure they all get processed in the
-        same batch.
-        
         """
         # Special case for the topic operation: we do not need op if channel
         # mode +t is not set
@@ -424,76 +515,81 @@ class OpProvider(EventWatcher, BotPlugin):
                 topic=target,))
             return
 
-        # for everything else we need to know: are we op?
-        are_op = (yield self.transport.issue_request("irc.has_op", channel))
-        connector = self.config["opmethod"][channel].get(operation)
-        if not are_op and connector:
-            # Try to send this operation through a connector, if defined
-            log.msg("trying the connector {0}".format(connector))
-            try:
-                yield self.transport.issue_request("connector.{0}.{1}".format(
-                        connector, operation),
-                        channel, target)
-            except NotImplementedError:
-                raise OpFailed("Connector {0} is not loaded, does not exist, or does not provide '{1}'".format(connector, operation))
+        # If a connector is not defined, we can convert it right away. This
+        # lets us make the assumption in _process_buffer() that all connector
+        # operations in the connector_buffer are defined and we don't need to
+        # do this check there. (They could still fail with a
+        # NotImplementedError if e.g. the connector plugin is not loaded,
+        # however)
+        if not self.config['opmethod'][channel].get(operation, None):
+            d = defer.Deferred()
+            self._convert_connector(operation, channel, target, d)
+            # We will need OP, so go ahead and request it here.
+            self._wait_for_op(channel).addErrback(lambda _: None)
+            # wait for the operation to finish, then return to the caller.
+            # Yielding for this deferred will also propagate errors encountered
+            # when processing the buffer to our caller.
+            self._set_buffer_processor_timer(channel)
+            yield d
             return
 
-        # Otherwise, do the operation ourself
-        modes = {"op":      "+o",
-                 "deop":    "-o",
-                 "voice":   "+v",
-                 "devoice": "-v",
-                 "quiet":   "+q",
-                 "unquiet": "-q",
-                 }
-        if operation in modes:
-            # Delegate
-            yield self._do_mode(channel, modes[operation], param=target)
+        # Go ahead and submit this as a connector operation. For now. Later on
+        # when the buffer is processed, it may decide to process this ourself
+        # instead of using the connector.
 
-        elif operation == "topic":
-            # Acquire op if and change the topic. We know we need op because we
-            # already checked for +t at the beginning of this method.
-            yield self._wait_for_op(channel)
-            self.event_buffer[channel].add(Event("irc.do_topic",
-                channel=channel,
-                topic=target,))
-            self._set_buffer_processor_timer(channel)
-        else:
-            # Could happen if we defined more connector operations than we have
-            # coded handlers for in this method.
-            raise Exception("Unknown mode. This is a bug")
+        # Add this to the connector queue
+        d = defer.Deferred()
+        self.connector_buffer[channel].add((operation, target, d))
 
-    @defer.inlineCallbacks
+        # We don't know if we'll need op or not for a connector operation, so
+        # just set the processor timer (unlike the other request handlers where
+        # we would go ahead and initiate an OP request here)
+        self._set_buffer_processor_timer(channel)
+        # d will return when the request is fulfilled or err trying
+        yield d
+
     def _do_mode(self, channel, mode, param=None):
-        """Handles arbitrary mode requests that aren't handled by a connector.
-        This method never uses a connector and will always acquire op to
-        perform the mode request (may use a connector to acquire op, though).
+        """Called to implement ircop.mode. Handles arbitrary mode requests that
+        aren't handled by a connector. This method never uses a connector and
+        will always acquire op to perform the mode request (may use a connector
+        to acquire op, though).
 
         mode is a two character string, where the first character is + or - and
         the second is the mode character.
         
         param is the parameter, if any, or None.
 
+        Results are undefined if you specify a parameter for a mode that
+        doesn't take one, or don't specify a parameter for a mode that requires
+        one.
+
         This request can only handle one mode change per call. They are
         internally buffered so if you need more than one mode change simply
         issue more than one request.
 
-        Returns once OP has been acquired (if necessary) and the request will
-        succeed (but may return before the actual operation actually goes
-        through). If you're doing many calls to this, you should only
-        yield-wait for the last call to ensure they all get processed in the
-        same batch.
-
         """
 
         # Add the mode request(s) to the buffer
-        self.mode_buffer[channel].add((mode, param))
+        d = defer.Deferred()
+        self.mode_buffer[channel].add((mode, param, d))
 
+        # Tell the plugin to process the buffer and go ahead and submit an OP
+        # request immediately since we know we'll need it for this. Silence
+        # errors on the op request, since errors to the caller will come
+        # through the returned deferred.
         self._set_buffer_processor_timer(channel)
-        yield self._wait_for_op(channel)
+        self._wait_for_op(channel).addErrback(lambda _: None)
+        return d
 
     @defer.inlineCallbacks
     def _do_become_op(self, channel, duration):
+        """Tells the bot to hold op for the given duration, in seconds. The bot
+        will attempt to gain OP and will not relinquish it on its own until the
+        given time is up.
+        
+        The returned deferred fires as soon as OP is acquired.
+
+        """
         yield self._wait_for_op(channel)
         self.op_until[channel] = max(self.op_until[channel], time.time()+duration)
         self._deop_later(channel)
@@ -508,6 +604,8 @@ class OpProvider(EventWatcher, BotPlugin):
         """Gains op and performs a kick"""
         kickevent = Event("irc.do_kick", channel=channel,
                 user=target, reason=reason)
-        self.event_buffer[channel].add(kickevent)
+        d = defer.Deferred()
+        self.event_buffer[channel].add((kickevent, d))
         self._set_buffer_processor_timer(channel)
-        return self._wait_for_op(channel)
+        self._wait_for_op(channel).addErrback(lambda _: None)
+        return d

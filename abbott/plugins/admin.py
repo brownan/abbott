@@ -1,6 +1,6 @@
+# encoding: UTF-8
 from collections import defaultdict, deque
 import time
-import re
 import random
 
 from twisted.internet import reactor
@@ -76,7 +76,7 @@ class IRCAdmin(CommandPluginSuperclass):
         
         """
         # First, cancel any existing timers and remove any existing saved
-        # laters from the config
+        # laters from the config that match this one.
         if (hostmask, channel, mode) in self.later_timers:
             timer = self.later_timers.pop((hostmask, channel, mode))
             timer.cancel()
@@ -254,7 +254,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="unquiet",
-                cmdmatch="unquiet|UNQUIET|unmute",
+                cmdmatch="unquiet|UNQUIET|unmute|dequiet",
                 cmdusage="<nick or hostmask> [in <delay>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 prefix=".",
@@ -288,17 +288,17 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="holdop",
-                cmdusage="<seconds>",
-                argmatch="(?P<time>\d+)$",
+                cmdusage="<time>",
+                argmatch="(?P<time>.+)$",
                 permission="irc.op.holdop",
                 callback=self.holdop,
-                helptext="Tells the bot to hold op for `time` seconds",
+                helptext="Tells the bot to hold op for the given amount of time",
                 )
         
         self.install_command(
                 cmdname="mode",
                 cmdusage="[+-]<mode_letter> [param]",
-                argmatch="(?P<mode>[+-][a-z])(?: (?P<param>[^ ]+))?$",
+                argmatch="(?P<mode>[+-][a-zA-Z])(?: (?P<param>[^ ]+))?$",
                 permission="irc.op.mode",
                 callback=self.mode,
                 helptext="Sets a channel mode",
@@ -314,17 +314,20 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def _nick_to_hostmask(self, nick):
         """Takes a nick or a hostmask and returns a parameter suitable for the
-        +b or +q modes. If the items given looks like a hostmask (contains a !
-        and a @) then it is returned. If the item is an extban (starts with a
-        $), then that is returned. Otherwise, it is assumed the parameter is a
-        nickname and a whois is performed and the hostmask is returned with the
-        first two fields wildcarded.
+        +b or +q modes.
+        
+        If the items given looks like a hostmask (contains a ! and a @) then
+        it is returned. If the item is an extban (starts with a $), then that
+        is returned. Otherwise, it is assumed the parameter is a nickname and a
+        whois is performed and the hostmask is returned with the first two
+        fields wildcarded.
 
         This methed is intended to allow bans and quiets to match any nick!user
         combination by banning/quieting all users from that host.
 
-        If no such user is found, an ircutil.NoSuchNick is raised. If the whois
-        fails, an ircutil.WhoisTimedout is raised.
+        If the parameter is a nickname and no such user is found, an
+        ircutil.NoSuchNick is raised. If the whois fails, an
+        ircutil.WhoisTimedout is raised.
 
         Returnes a deferred that fires with the answer.
 
@@ -348,8 +351,7 @@ class IRCAdmin(CommandPluginSuperclass):
     @require_channel
     @defer.inlineCallbacks
     def kick(self, event, match):
-        """A user has issued the kick command. Our job here is to acquire OP
-        for this channel and issue a kick event
+        """A user has issued the kick command.
 
         """
         groupdict = match.groupdict()
@@ -365,6 +367,9 @@ class IRCAdmin(CommandPluginSuperclass):
 
     @require_channel
     def kickself(self, event, match):
+        """A user without permission has tried to issue a kick command
+
+        """
         targetnick = match.groupdict()['nick']
         requestor = event.user.split("!")[0]
 
@@ -391,7 +396,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 target=nick)
         except ircop.OpFailed, e:
             event.reply(str(e))
-        log.msg("Voicing %s in %s" % (nick, channel))
 
     @require_channel
     @defer.inlineCallbacks
@@ -407,7 +411,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 target=nick)
         except ircop.OpFailed, e:
             event.reply(str(e))
-        log.msg("De-voicing %s in %s" % (nick, channel))
 
     @require_channel
     @defer.inlineCallbacks
@@ -418,7 +421,6 @@ class IRCAdmin(CommandPluginSuperclass):
             nick = event.user.split("!",1)[0]
         channel = event.channel
         
-        log.msg("Opping %s in %s" % (nick, channel))
         try:
             yield self.transport.issue_request("ircop.op",channel,nick)
         except ircop.OpFailed, e:
@@ -432,212 +434,243 @@ class IRCAdmin(CommandPluginSuperclass):
         if not nick:
             nick = event.user.split("!",1)[0]
         channel = event.channel
-        log.msg("Deopping %s in %s" % (nick, channel))
         try:
             yield self.transport.issue_request("ircop.deop",channel,nick)
         except ircop.OpFailed, e:
             event.reply(str(e))
 
     @require_channel
+    @defer.inlineCallbacks
     def quiet(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
+        target = groupdict['nick']
         duration = groupdict['timestr']
         channel = event.channel
 
-        self._do_moderequest('q', event.reply, nick, duration, channel)
+        if duration:
+            try:
+                duration = parse_time(duration)
+            except ValueError, e:
+                event.reply(str(e))
+                return
+        
+        try:
+            hostmask = (yield self._nick_to_hostmask(target))
+        except ircutil.NoSuchNick:
+            event.reply("There is no user by that nick on the network. "
+                        "Try {0}!*@* to quiet anyone with that nick, or specify your own hostmask.".format(
+                        target,
+                        ))
+            return
+
+        try:
+            yield self._do_moderequest(channel, 'q', hostmask, duration)
+        except ircop.OpFailed, e:
+            event.reply(str(e))
 
     @require_channel
+    @defer.inlineCallbacks
     def quietself(self, event, match):
         groupdict = match.groupdict()
         nick = event.user.split("!")[0]
         if random.randint(1,3) == 3 or nick == groupdict['nick']:
-            duration = 10
-            channel = event.channel
-            def r(s):
-                event.reply("naa, I don't feel like it right now", userprefix=False)
-                log.msg(s)
-            self._do_moderequest("q",
-                    r,
-                    nick,
-                    duration,
-                    channel,
-                    )
+            try:
+                yield self._do_moderequest(
+                        event.channel,
+                        "q",
+                        nick,
+                        duration=10,
+                        )
+            except ircop.OpFailed:
+                defer.returnValue(False)
             if nick != groupdict['nick']:
                 reactor.callLater(7,
                         event.reply,
                         "Woops, my bad!",
                         )
-            return True
+            defer.returnValue(True)
 
     @require_channel
     @defer.inlineCallbacks
     def ban(self, event, match):
         groupdict = match.groupdict()
         # nick here could be a nick, a hostmask (with possible wildcards), or
-        # an extban
-        nick = groupdict['nick']
+        # an extban.
+        target = groupdict['nick']
         duration = groupdict['timestr']
         channel = event.channel
 
-        do_kick = False
-        if "@" in nick and "!" in nick and not "$" in nick:
-            # A mask was given. Kick if the nick section doesn't have any
-            # wildcards
-            nick = nick.split("!")[0]
+        if duration:
+            try:
+                duration = parse_time(duration)
+            except ValueError, e:
+                event.reply(str(e))
+                return
+
+        if "@" in target and "!" in target and not "$" in target:
+            # Target was a mask. Kick if the nick section doesn't have any
+            # wildcards. Ban the target as given
+            nick = target.split("!")[0]
+            hostmask = target
             if "*" not in nick:
                 do_kick = True
-        elif "@" not in nick and "!" not in nick and "$" not in nick:
-            # Just a nick was given.
+            else:
+                do_kick = False
+
+        elif "@" not in target and "!" not in target and "$" not in target:
+            # Just a nick was given. Do a kick on the target as given, but
+            # lookup the mask and do a ban on that.
+            nick = target
+            try:
+                hostmask = (yield self._nick_to_hostmask(target))
+            except ircutil.NoSuchNick:
+                event.reply("There is no user by that nick on the network. "
+                            "Try {0}!*@* to ban anyone with that nick, or specify your own hostmask.".format(
+                            nick,
+                            ))
+                return
+            except ircutil.WhoisTimedout:
+                event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
+                return
             do_kick = True
 
-        # Do the mode request first. This will do a whois, and then return
-        # control to us while it submits an op request and the mode request.
-        # While the op request is pending, we continue and issue the kick
-        # below. If the whois fails, it returns false, and we cancel the kick.
-        # Any error is sent straight to the event.reply() so there is no need
-        # to do any error reporting here
-        #
-        # If we were to not yield here, we wouldn't be able to check the result
-        # and possibly cancel the whois. The process would probably go a bit
-        # faster because the whois and op request (for the kick) would be
-        # submitted in parallel, and as long as the whois comes in before the
-        # op request, the ban and kick will still happen together. However, in
-        # practice, waiting for chanserv to op us still takes much more time
-        # than the whois delay so it's not really worth it.
+        else:
+            # something else (extban? malformed hostmask) don't try to kick,
+            # but pass it on to see if the irc server can make sense of it.
+            do_kick = False
+
         log.msg("issuing ban")
-        if not (yield self._do_moderequest('b', event.reply, nick, duration, channel)):
-            return
+        ban_d = self._do_moderequest(channel, 'b', hostmask, duration)
 
         if do_kick:
             log.msg("issuing kick to go with the ban")
-            self.transport.issue_request("ircop.kick",
+            kick_d = self.transport.issue_request("ircop.kick",
                     channel=channel,
                     target=nick,
                     reason="Banned by " + event.user.split("!")[0],
                     )
+        try:
+            yield ban_d
+            yield kick_d
+        except ircop.OpFailed, e:
+            event.reply(str(e))
 
+    def _do_moderequest(self, channel, mode, hostmask, duration):
+        """Sets a mode on the given hostmask in a channel for an optional
+        duration. If duration is None, we will not set it back after any length
+        of time.
 
-    @defer.inlineCallbacks
-    def _do_moderequest(self, mode, reply, nick, duration, channel):
-        """Does the work to set a mode on a nick (or hostmask) in a channel for
-        an optional duration. If duration is None, we will not set it back
-        after any length of time.
-
-        reply is used to send error messages. It should take a string.
-
-        This method does a whois request if a nick is given, to get and use the
-        hostmask in the actual mode request. This means that requests won't
-        happen immediately: there is a slight delay while we wait for the whois
-        to respond. If the whois fails (perhaps the user does not exist) then
-        this method returns (a deferred) False.
-
-        Callers should call this method first and wait for it to return. If it
-        succeeds, the caller can go on to put in another request (such as a
-        kick to accompany the ban)
+        This method returns a deferred that fires when the mode request has
+        been completed. It may error with an ircop.OpFailed exception
 
         """
-        try:
-            mask = (yield self._nick_to_hostmask(nick))
-        except ircutil.NoSuchNick:
-            reply("There is no user by that nick on the network. Try {0}!*@* to {1} anyone with that nick, or specify your own hostmask.".format(
-                nick,
-                {"q":"quiet","b":"ban"}.get(mode, "apply to"),
-                ))
-            defer.returnValue(False)
-        except ircutil.WhoisTimedout:
-            reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
-            defer.returnValue(False)
-
         if duration:
-            log.msg("+%s for %s in %s %s" % (mode, mask, channel, duration))
-            if isinstance(duration, basestring):
-                try:
-                    duration = parse_time(duration)
-                except ValueError, e:
-                    reply(str(e))
-                    defer.returnValue(False)
+            log.msg("+%s for %s in %s %s" % (mode, hostmask, channel, duration))
         else:
-            log.msg("+%s for %s in %s" % (mode, mask, channel, ))
+            log.msg("+%s for %s in %s" % (mode, hostmask, channel, ))
 
         # Don't yield for the mode request. We want to return control to the
         # caller as soon as possible, and errors still get sent to the
         # passed-in reply() function
-        self.transport.issue_request("ircop.{0}".format(
+        req = self.transport.issue_request("ircop.{0}".format(
                     {"b":"ban","q":"quiet"}[mode]
                     ),
                     channel=channel,
-                    target=mask,
-                    ).addErrback(
-                            lambda f: reply(f.getErrorMessage())
-                            )
+                    target=hostmask,
+                    )
         if duration:
-            self._set_timer(duration, mask, channel, mode)
+            # only set the timer if the request succeeds
+            def s(a):
+                self._set_timer(duration, hostmask, channel, mode)
+                return a
+            req.addCallback(s)
 
-        defer.returnValue(True)
+        return req
 
     @require_channel
+    @defer.inlineCallbacks
     def unquiet(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
-        duration = groupdict['timestr']
+        target = groupdict['nick']
+        delay = groupdict['timestr']
         channel = event.channel
-        
-        self._do_modederequest('q', event.reply, nick, duration, channel)
+
+        if delay:
+            try:
+                delay = parse_time(delay)
+            except ValueError, e:
+                event.reply(str(e))
+                return
+
+        try:
+            hostmask = (yield self._nick_to_hostmask(target))
+        except ircutil.NoSuchNick:
+            event.reply(u"There is no user by that nick on the network. "
+                        u"Try specifying a full hostmask. Use “/mode +q” to see the channel quiet list".format(
+                        target,
+                        ))
+            return
+
+        try:
+            yield self._do_modederequest(channel, 'q', hostmask, delay)
+        except ircop.OpFailed, e:
+            event.reply(str(e))
+        if delay:
+            event.reply("It shall be done.")
 
     @require_channel
+    @defer.inlineCallbacks
     def unban(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
-        duration = groupdict['timestr']
+        target = groupdict['nick']
+        delay = groupdict['timestr']
         channel = event.channel
-        
-        self._do_modederequest('b', event.reply, nick, duration, channel)
 
-    @defer.inlineCallbacks
-    def _do_modederequest(self, mode, reply, nick, duration, channel):
-        """See _do_moderequest()"""
+        if delay:
+            try:
+                delay = parse_time(delay)
+            except ValueError, e:
+                event.reply(str(e))
+                return
+
         try:
-            mask = (yield self._nick_to_hostmask(nick))
+            hostmask = (yield self._nick_to_hostmask(target))
         except ircutil.NoSuchNick:
-            reply("There is no user by that nick on the network. Check the {0} list with /mode +{1}".format(
-                {"q":"quiet","b":"ban"}[mode], mode))
-            defer.returnValue(False)
-        except ircutil.WhoisTimedout:
-            reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
-            defer.returnValue(False)
+            event.reply(u"There is no user by that nick on the network. "
+                        u"Try specifying a full hostmask. Use “/mode +b” to see the channel ban list".format(
+                        target,
+                        ))
+            return
 
-        if duration:
-            if isinstance(duration, basestring):
-                try:
-                    duration = parse_time(duration)
-                except ValueError, e:
-                    reply(str(e))
-                    defer.returnValue(False)
-            self._set_timer(duration, mask, channel, mode)
-            reply("It shall be done")
-            defer.returnValue(True)
+        try:
+            yield self._do_modederequest(channel, 'b', hostmask, delay)
+        except ircop.OpFailed, e:
+            event.reply(str(e))
+        if delay:
+            event.reply("It shall be done.")
+        
+    def _do_modederequest(self, channel, mode, hostmask, delay):
+        """See _do_moderequest()"""
+        if delay:
+            self._set_timer(delay, hostmask, channel, mode)
+            return defer.succeed(None)
 
-        self.transport.issue_request("ircop.{0}".format(
+        log.msg("-%s for %s in %s" % (mode, hostmask, channel))
+        return self.transport.issue_request("ircop.{0}".format(
                     {"b":"unban","q":"unquiet"}[mode]
                     ),
                     channel=channel,
-                    target=mask,
-                    ).addErrback(
-                            lambda f: reply(f.getErrorMessage())
-                            )
-
-        log.msg("-%s for %s in %s" % (mode, mask, channel))
-        defer.returnValue(True)
+                    target=hostmask,
+                    )
 
     @require_channel
     @defer.inlineCallbacks
     def holdop(self, event, match):
         channel = event.channel
-        minutes = int(match.groupdict()['time'])
+        seconds = parse_time(match.groupdict()['time'])
 
         try:
-            yield self.transport.issue_request("ircop.become_op", channel, minutes)
+            yield self.transport.issue_request("ircop.become_op", channel, seconds)
         except ircop.OpFailed, e:
             event.reply(str(e))
 
@@ -660,9 +693,11 @@ class IRCAdmin(CommandPluginSuperclass):
         channel = event.channel
         nick = event.user.split("!",1)[0]
 
+        req1 = self.transport.issue_request("ircop.mode", channel, "+m")
+        req2 = self.transport.issue_request("ircop.op", channel, nick)
         try:
-            self.transport.issue_request("ircop.mode", channel, "+m")
-            yield self.transport.issue_request("ircop.op", channel, nick)
+            yield req1
+            yield req2
         except ircop.OpFailed, e:
             event.reply(str(e))
         else:

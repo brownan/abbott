@@ -85,7 +85,7 @@ def weighted_random_choice(seq, weight):
 
 
 class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
-    REQUIRES = ["ircop.OpProvider", "ircutil.Names"]
+    REQUIRES = ["ircop.OpProvider", "ircutil.Names", "ircutil.IRCWhois"]
     def __init__(self, *args):
         self.started = False
         self.timer = None
@@ -182,8 +182,13 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         # Who currently has voice due to this plugin, right now. Will be
         # devoiced at the next drawing
         self.config['currentvoice'] = self.config.get("currentvoice", None)
+        # These hold the hostmast and the logged-in username of the current
+        # voice, so we can give them their hat back if they leave and re-enter
+        self.config['currenthostmask'] = self.config.get("currenthostmask", None)
+        self.config['currentusername'] = self.config.get("currentusername", None)
 
-        # The multipliers get multiplied by vote totals before the drawing
+        # The multipliers get multiplied by vote totals before the drawing.
+        # This also defines the default for new users
         self.config['multipliers'] = defaultdict(lambda: 0.01, self.config.get("multipliers", {}))
 
         self.config['scalefactor'] = self.config.get("scalefactor", 100)
@@ -224,6 +229,12 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
                     max(int(timeuntil.total_seconds()), 5),
                     self._timer_up,
                     )
+
+    @defer.inlineCallbacks
+    def _get_winner_info(self, winner):
+        """For the given winner, does a whois and sets the currenthostmask and
+        currentusername vars in the config"""
+        info = (yield self.transport.issue_request("irc.whois", winner))
 
     @require_channel
     def enable(self, event, match):
@@ -319,6 +330,8 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
                 names.add(currentvoice)
 
             self.config['currentvoice'] = None
+            self.config['currenthostmask'] = None
+            self.config['currentusername'] = None
 
         # Take a copy of the counters and use that for the rest of the method
         counter = self.config["counter"]

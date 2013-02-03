@@ -438,15 +438,17 @@ class CommandPluginSuperclass(BotPlugin):
             # nickname matches an authname in the auth plugin's permission
             # list. If so, return a different message suggesting that the user
             # logs in.
-            # XXX This is a slight hack. We should really have a mechanism for
-            # the auth plugin to distinguish between a logged-in user with
+            # Note: This is a slight hack. We should really have a mechanism
+            # for the auth plugin to distinguish between a logged-in user with
             # insufficient permissions, and a user that is logged out (and
             # therefore has no permissions). Instead, here we just check to see
             # if the user /would/ have had permission had their nickname been
             # their authname and they had been logged in with that authname
             nick = event.user.split("!",1)[0]
             # If a mapping from nickname to authname is given in the config,
-            # perform this check against that instead of their nick.
+            # perform this check against that instead of their nick. This
+            # supports known users that typically have different nicks than
+            # their authname.
             nickmaps = self.pluginboss.config.get("command", {}).get("nickmaps", {})
             nick = nickmaps.get(nick, nick)
             
@@ -473,8 +475,10 @@ class CommandPluginSuperclass(BotPlugin):
                             pass
                         return
 
-            # Try the denied callback, if one exists
-            if cmd.deniedcallback and cmd.deniedcallback(event, match):
+            # Try the denied callback, if one exists. If it returns True, then
+            # it has handled the request.
+            if cmd.deniedcallback and (
+                    yield defer.maybeDeferred(cmd.deniedcallback,event, match)):
                 return
 
             # None of those checks above worked? Go ahead and issue our retort!
