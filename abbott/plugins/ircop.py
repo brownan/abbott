@@ -158,8 +158,8 @@ class OpProvider(EventWatcher, BotPlugin):
         # Used to keep track of op requests from the become_op request call.
         self.op_until = defaultdict(float)
 
-        # A unix timestamp for when we should process the mode and event
-        # buffers. Set by _set_buffer_processor_timer()
+        # A unix timestamp for when we should process the buffers. Set by
+        # _set_buffer_processor_timer()
         self.buffer_timer = defaultdict(float)
 
         # This plugin keeps three internel buffers per channel, stored in the
@@ -329,9 +329,9 @@ class OpProvider(EventWatcher, BotPlugin):
     @non_reentrant(channel=1)
     @defer.inlineCallbacks
     def _process_buffer(self, channel):
-        """Processes the mode and event buffers right now. This is only called
-        from _wait_buffer_processor_timer(), and should not be called directly
-        by handlers. (handlers should call _set_buffer_processor_timer() unless
+        """Processes the buffers right now. This is only called from
+        _wait_buffer_processor_timer(), and should not be called directly by
+        handlers. (handlers should call _set_buffer_processor_timer() unless
         they have a reason to process the buffer *right this instant*)
 
         If there is a method of gaining op defined (a connector for the 'op'
@@ -383,12 +383,21 @@ class OpProvider(EventWatcher, BotPlugin):
             for event, d in self.event_buffer.pop(channel, set()):
                 d.errback(e)
             for operation, param, d in self.connector_buffer.pop(channel, set()):
-                self.transport.issue_request(
-                        "connector.{0}.{1}".format(
-                            self.config['opmethod'][channel][operation],
-                            operation),
-                        param)
-                d.callback(None)
+                try:
+                    self.transport.issue_request(
+                            "connector.{0}.{1}".format(
+                                self.config['opmethod'][channel][operation],
+                                operation),
+                            channel,
+                            param,
+                            )
+                except NotImplementedError:
+                    log.msg("Error: Connector {0} is not loaded, does not exist, or does not provide '{1}'".format(
+                        self.config['opmethod'][channel][operation],
+                        operation))
+                    d.errback(OpFailed("I am not configured correctly to do {1} on {0}".format(channel, operation)))
+                else:
+                    d.callback(None)
             return
 
         # At this point we're doing everything ourself as OP. Convert the
@@ -525,7 +534,7 @@ class OpProvider(EventWatcher, BotPlugin):
             d = defer.Deferred()
             self._convert_connector(operation, channel, target, d)
             # We will need OP, so go ahead and request it here.
-            self._wait_for_op(channel).addErrback(lambda _: None)
+            self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
             # wait for the operation to finish, then return to the caller.
             # Yielding for this deferred will also propagate errors encountered
             # when processing the buffer to our caller.
@@ -578,7 +587,7 @@ class OpProvider(EventWatcher, BotPlugin):
         # errors on the op request, since errors to the caller will come
         # through the returned deferred.
         self._set_buffer_processor_timer(channel)
-        self._wait_for_op(channel).addErrback(lambda _: None)
+        self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
         return d
 
     @defer.inlineCallbacks
@@ -597,9 +606,11 @@ class OpProvider(EventWatcher, BotPlugin):
     def _do_ban(self, channel, target):
         """A shorthand for submitting a mode request for +b"""
         return self._do_mode(channel, "+b", param=target)
+
     def _do_unban(self, channel, target):
         """A shorthand for submitting a mode request for -b"""
         return self._do_mode(channel, "-b", param=target)
+
     def _do_kick(self, channel, target, reason):
         """Gains op and performs a kick"""
         kickevent = Event("irc.do_kick", channel=channel,
@@ -607,5 +618,5 @@ class OpProvider(EventWatcher, BotPlugin):
         d = defer.Deferred()
         self.event_buffer[channel].add((kickevent, d))
         self._set_buffer_processor_timer(channel)
-        self._wait_for_op(channel).addErrback(lambda _: None)
+        self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
         return d
