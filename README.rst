@@ -1,7 +1,8 @@
 Abbott
 ======
 
-An IRC bot framework using Twisted by Andrew Brown.
+A generalized event/plugin framework and a set of plugins for an IRC bot, using
+Twisted, by Andrew Brown.
 
 Okay so this isn't anything special or ground breaking, it was just for fun.
 Despite being intended for IRC, this is a general framework that could find use
@@ -10,9 +11,12 @@ in other applications.
 Interesting or Notable Features
 -------------------------------
 
-* Full unicode support
+* All functionality is implemented as plugins except for a mechanism for
+  loading plugins and a mechanism for communication between plugins
+* Online loading and reloading of plugins
 * Features a generalized event and request framework for communication among
   plugins
+* Full unicode support
 * Includes a command system with Nickserv-based identification, a robust-ish
   authentication/permission system, built-in !help, and regular
   expression-based argument parsing
@@ -20,6 +24,8 @@ Interesting or Notable Features
   deferreds. No locks or unexpected state mutations that come with threads!
 * Persistent data / config files for plugins
 * Automatically reconnects when disconnected
+* Well-commented code and clear, well-defined separation between layers of
+  abstraction. (well, it could always be better, but I think it's pretty good)
 
 Requirements
 ------------
