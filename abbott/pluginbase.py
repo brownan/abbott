@@ -312,17 +312,45 @@ class EventWatcher(object):
     bookkeeping and keeps track of all the deferred and timer objects so that
     callers don't have to.
 
-    To use it, call self.wait_for(), which will return a deferred object. For
-    increased usefulness, functions should be decorated with
-    defer.inlineCallbacks and you should yield the returned deferred. See docs
-    on wait_for() for options and more info.
+    To use it, define your plugin with this mixin::
+    
+        class MyPlugin(EventWatcher, BotPlugin):
+            pass
+
+        class AnotherPlugin(EventWatcher, CommandPluginSuperclass):
+            pass
+    
+    Then, in a method, call self.wait_for(), which will return a deferred
+    object. For increased usefulness, methods should be decorated with
+    defer.inlineCallbacks and you should yield the returned deferred, which
+    will suspend execution of the method until a matching event comes in.
+    
+    For example, consider this plugin that responds to someone saying "hello".
+    With this mixin, the entire plugin could be implemented in the start()
+    method::
+
+        class HelloResponder(EventWatcher, BotPlugin)
+
+            @defer.inlineCallbacks
+            def start(self):
+                self.listen_for_event("irc.do_msg")
+                while True:
+                    event = (yield self.wait_for(
+                            Event("irc.on_privmsg", message="hello")))
+                
+                    self.transport.send_event(Event("irc.do_msg",
+                            user=event.channel,
+                            message="hi!",
+                            ))
+    
+    See docs on wait_for() for options and more info on how to use it.
 
     Note that if you use functionality in this mixin, you should take care to
     properly call super() for __init__(), stop() and received_event() if you
     override those methods!
 
     Also note that functions that yield to a wait_for() may never resume if the
-    plugin is stopped.
+    plugin is stopped. (this is a feature)
 
     """
     def __init__(self, plugin_name, transport, pluginboss):
@@ -370,12 +398,14 @@ class EventWatcher(object):
         """This method returns a twisted deferred that fires when an event is
         received, or when the given timeout expires, whichever comes first.
 
-        event_match should be an Event object. The parameters that are given on
-        event_match must equal the corresponding parameters on the incoming
-        event. That is considered a match.
+        event_match should be an Event object with the correct type and
+        parameters of the one you wish to match. Each parameter given on
+        event_match must equal the corresponding parameter on the incoming
+        event.
 
         It is the caller's responsibility to make sure the plugin has a hook in
-        place to catch any given event types
+        place to catch any given event types. So remember to call
+        self.listen_for_event in start() for events you pass to wait_for()
 
         A timeout of 0 is different than a timeout of None. None is equivalent
         to infinite timeout, in that it will wait forever for the event. A
@@ -458,7 +488,7 @@ def non_reentrant(**keyargs_def):
     invocation, since the function isn't called more than once at a time.)
 
     Also note that it is unnecessary to include the `self` parameter of methods
-    only because in this framework there is only ever once instance of each
+    only because in this framework there is only ever one instance of each
     plugin object. If you are using this decorator in other situations, you may
     need to declare self=0. The reason is since the entrants are stored in a
     closure of the decorator function, it is stored per-class, not
