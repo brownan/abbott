@@ -548,7 +548,8 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             user = event.user.split("!")[0]
         if user.lower() == event.user.split("!")[0].lower():
             msg = u"Your chance of winning the next VOTD drawing is"
-            self.config["counter"][user] = max(self.config["counter"][user] - 1, 0)
+            punishment = lambda x: max(0, min(int(x*0.9), x-5))
+            self.config["counter"][user] = punishment(self.config["counter"][user])
             self.config.save()
         else:
             msg = u"{0}’s chance of winning the next VOTD is".format(user)
