@@ -1,6 +1,16 @@
 Ideas for the Future!
 =====================
 
+* test ircop error contitions. Particularly: if chanserv never responds (due to
+  netsplit, etc). We should get an error timeout after 20-30 seconds, but there
+  may be a bug because this happened and it never errored. (operations sent via
+  a connector we get no error, but operations which we need to op and then do
+  something we timeout. Maybe we should follow through on various connector
+  operations?)
+
+  also if a connector is not loaded. Errors all around don't seem to be
+  propagating back to their callers correctly.
+
 * Fix up logging. I want logging that is actually useful, tells which plugin
   it's coming from, the ability to turn logging on and off per plugin/module,
   colorized for different levels, etc. I'm thinking it may be good to just
