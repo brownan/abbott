@@ -341,12 +341,18 @@ class OpProvider(EventWatcher, BotPlugin):
         """
         already_opped = (yield self.transport.issue_request("irc.has_op",
             channel))
+
         # If there are items in the connector_buffer but the other buffers are
         # empty, then process them with a connector and exit. Otherwise, since
         # we'll have to gain OP anyways, skip using the connector and do
         # everything ourself.
+        # Also if the connector buffer is 3 or more items long, it's more
+        # efficient for us to just do the operations ourself.
+        # This is the only opportunity we have to process items with a
+        # connector.
         if (
                 self.connector_buffer[channel]
+                and len(self.connector_buffer[channel]) < 3
                 and (not self.event_buffer[channel])
                 and (not self.mode_buffer[channel])
                 and not already_opped
@@ -371,7 +377,8 @@ class OpProvider(EventWatcher, BotPlugin):
                     d.callback(None)
             return
 
-        # Acquire op here. We'll need it.
+        # Acquire op here. We'll need it. (if we already have it, this will
+        # fall right through)
         try:
             yield self._wait_for_op(channel)
         except OpFailed, e:
@@ -422,17 +429,30 @@ class OpProvider(EventWatcher, BotPlugin):
         is_self_deop = lambda x: x[0] == "-o" and x[1] == mynick
         modelist.sort(key=is_self_deop)
 
+        # If there is an OP mode request for us, then remove it, because at
+        # this point in the code we have already acquired op. A self-op mode
+        # could get this far in the code in a couple ways.  When we get a
+        # request to OP ourself explicitly (!op bot), which is usually
+        # fulfilled by a connector, but wasn't for some reason, then we OP to
+        # process the buffers and one of the items is a +o on the bot
+        is_self_op = lambda x: x[0] == "+o" and x[1] == mynick
+        if any(is_self_op(m) for m in modelist):
+            already_opped = True
+            modelist = [m for m in modelist if not is_self_op(m)]
+
+
         # Check if we should insert a deop request to the end of the mode list
         if (
                 # if there's not already one...
-                not modelist or not is_self_deop(modelist[-1])
+                (not modelist or not is_self_deop(modelist[-1]))
                 # ... and if a connector is defined for OP
-                and self.config["opmethod"][channel].get("op")
+                and (self.config["opmethod"][channel].get("op"))
                 # ... and we're not in "hold op" mode
-                and self.op_until[channel] < time.time()
-                # ... and if we had to acquire OP ourself to fulfill this
-                # request
-                and not already_opped
+                and (self.op_until[channel] < time.time())
+                # ... and only if we had to acquire OP ourself to fulfill this
+                # request. (don't relinquish if someone gave it to us
+                # explicitly)
+                and (not already_opped)
                 ):
             modelist.append(("-o", mynick, defer.Deferred()))
 
@@ -465,7 +485,7 @@ class OpProvider(EventWatcher, BotPlugin):
                         modeline=modeline,
                         params=" ".join(params),
                         )))
-                modereq = ""
+                modeline = ""
                 params = []
         for _,_,d in modelist:
             d.callback(None)
