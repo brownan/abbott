@@ -200,8 +200,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="op",
                 prefix=".",
-                cmdusage="[nick]",
-                argmatch="(?P<nick>[^ ]+)?",
+                cmdusage="[nick] ...",
+                argmatch="(?P<nicks>.+)?",
                 permission="irc.op.op",
                 callback=self.give_op,
                 helptext="Gives op to the specified user",
@@ -209,8 +209,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="deop",
                 prefix=".",
-                cmdusage="[nick]",
-                argmatch="(?P<nick>[^ ]+)?",
+                cmdusage="[nick] ...",
+                argmatch="(?P<nicks>.+)?",
                 permission="irc.op.op",
                 callback=self.take_op,
                 helptext="Takes op from the specified user",
@@ -220,8 +220,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="voice",
                 cmdmatch="voice|VOICE|hat",
-                cmdusage="[nick]",
-                argmatch = "(?P<nick>[^ ]+)?$",
+                cmdusage="[nick] ...",
+                argmatch = "(?P<nicks>.+)?$",
                 permission="irc.op.voice",
                 prefix=".",
                 callback=self.voice,
@@ -231,8 +231,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="devoice",
                 cmdmatch="devoice|DEVOICE|dehat|unhat",
-                cmdusage="[nick]",
-                argmatch = "(?P<nick>[^ ]+)?$",
+                cmdusage="[nick] ...",
+                argmatch = "(?P<nicks>.+)?$",
                 permission="irc.op.voice",
                 prefix=".",
                 callback=self.devoice,
@@ -386,14 +386,19 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def voice(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
+        nicks = groupdict['nicks'].split()
+        if not nicks:
+            nicks = [event.user.split("!",1)[0]]
         channel = event.channel
 
+        ds = [
+                self.transport.issue_request("ircop.voice", channel=channel,
+                    target=nick)
+                for nick in nicks
+                ]
         try:
-            yield self.transport.issue_request("ircop.voice", channel=channel,
-                target=nick)
+            for d in ds:
+                yield d
         except ircop.OpFailed, e:
             event.reply(str(e))
 
@@ -401,14 +406,19 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def devoice(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
+        nicks = groupdict['nicks'].split()
+        if not nicks:
+            nicks = [event.user.split("!",1)[0]]
         channel = event.channel
 
+        ds = [
+                self.transport.issue_request("ircop.devoice", channel=channel,
+                    target=nick)
+                for nick in nicks
+                ]
         try:
-            yield self.transport.issue_request("ircop.devoice", channel=channel,
-                target=nick)
+            for d in ds:
+                yield d
         except ircop.OpFailed, e:
             event.reply(str(e))
 
@@ -416,13 +426,19 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def give_op(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
+        nicks = groupdict['nicks'].split()
+        if not nicks:
+            nicks = [event.user.split("!",1)[0]]
         channel = event.channel
-        
+
+        ds = [
+                self.transport.issue_request("ircop.op", channel=channel,
+                    target=nick)
+                for nick in nicks
+                ]
         try:
-            yield self.transport.issue_request("ircop.op",channel,nick)
+            for d in ds:
+                yield d
         except ircop.OpFailed, e:
             event.reply(str(e))
 
@@ -430,12 +446,19 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def take_op(self, event, match):
         groupdict = match.groupdict()
-        nick = groupdict['nick']
-        if not nick:
-            nick = event.user.split("!",1)[0]
+        nicks = groupdict['nicks'].split()
+        if not nicks:
+            nicks = [event.user.split("!",1)[0]]
         channel = event.channel
+
+        ds = [
+                self.transport.issue_request("ircop.deop", channel=channel,
+                    target=nick)
+                for nick in nicks
+                ]
         try:
-            yield self.transport.issue_request("ircop.deop",channel,nick)
+            for d in ds:
+                yield d
         except ircop.OpFailed, e:
             event.reply(str(e))
 
