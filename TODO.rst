@@ -11,6 +11,12 @@ Ideas for the Future!
   also if a connector is not loaded. Errors all around don't seem to be
   propagating back to their callers correctly.
 
+* Optional maximum ban/quiet timer, for channels whose ban/quiet lists are
+  prone to filling up.
+
+* Get rid of per-command prefixes. They're unconfigurable and complicate the
+  code and nobody uses them anyways.
+
 * Fix up logging. I want logging that is actually useful, tells which plugin
   it's coming from, the ability to turn logging on and off per plugin/module,
   colorized for different levels, etc. I'm thinking it may be good to just
@@ -54,9 +60,12 @@ Ideas for the Future!
   and use it.
 
 * Generalize the timed actions in the admin plugin. I should be able to set +c
-  or +t and then set a timer to set -t or -c again. Besides that, it bugs me
-  that the timed operations are hard coded for only -q and -b. This seems like
-  an easy opportunity for generalization.
+  or +t or +r and then set a timer to set -t or -c or -r again. Besides that,
+  it bugs me that the timed operations are hard coded for only -q and -b. This
+  seems like an easy opportunity for generalization.
+
+  TL;DR: every admin command should accept the "for" or "until" keyword to set
+  a time to undo the operation.
 
 * Long term: redo the command plugin workflow. Instead of having command
   plugins inherit from a special base class which takes care of parsing
@@ -79,3 +88,30 @@ Ideas for the Future!
   command base class, which is something I'd like to avoid if possible).
   Conclusion: this is long term and may not happen and in any case needs more
   thought.
+
+* Also for the distant future: the ability to load multiple instances of a
+  plugin would be nice. For this I'd have to re-think how plugins are named. I
+  also need to think of a way to set which channels each responds to (maybe a
+  filter) for plugins that aren't aware of channel, and prevent commands from
+  clashing in channels they both apply in. See next bullet.
+
+* If we can have multiple instances of some plugins, then along with that
+  should be a way to set up per-plugin filters on incoming events. Some plugins
+  can be installed globally—they get full reign over all commands and events
+  sent from every channel. Some plugins are installed with a filter—they only
+  receive events that match a criteria.
+
+  This will help better support multi-channel bots where I want some set of
+  silly plugins in one channel but a different set of plugins that respond in
+  another channel.
+
+  I should also think about how the help system will work in this situation. If
+  you ask for help, does the help system know which commands you can execute
+  and where? Obviously some plugins can still run globally and have channel
+  access restricted by the permission system, like the admin plugins. Others,
+  like votd need multiple copies to run and depending on which channel you are
+  in, is routed to a different instance. But for a plugin like the
+  music/shoutcast plugin that we only want available in one channel, it would
+  still show up in the global help. hmm. Maybe the command restructuring would
+  help here, since we could filter on commands instead of incoming messages,
+  and the help system would be aware of commands and could hook into that.

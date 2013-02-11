@@ -6,7 +6,9 @@ Twisted, by Andrew Brown.
 
 Okay so this isn't anything special or ground breaking, it was just for fun.
 Despite being intended for IRC, this is a general framework that could find use
-in other applications.
+in other applications. (well, not that easily tbh. you could use this for
+non-irc purposes, but all the plugins right now are designed around the IRC
+plugin, so you'd need a whole new set of plugins.)
 
 Interesting or Notable Features
 -------------------------------
