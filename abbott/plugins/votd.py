@@ -499,35 +499,41 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             event.reply(u"I'm not doing votd in this channel. This command only works in " + channel)
             return
 
-        requestor = event.user.split("!")[0]
-        if self.config["currentvoice"] != requestor:
-            event.reply(u"You are not the VOTD. Get out of here, you!")
-            return
-
         names = (yield self.transport.issue_request("irc.names", channel))
-        if "+"+requestor not in names:
-            event.reply(u"Hey, where'd your hat go?")
-            return
+        if (yield event.has_permission("votd.transfer", event.channel)):
+            requestor = self.config["currentvoice"]
+        else:
+            requestor = event.user.split("!")[0]
+            if self.config["currentvoice"] != requestor:
+                event.reply(u"You are not the VOTD. Get out of here, you!")
+                return
 
-        if "+"+target in names:
-            event.reply(u"{0} already has voice".format(target))
-            return
+            if "+"+requestor not in names:
+                event.reply(u"Hey, where'd your hat go?")
+                return
 
-        if "@"+target in names:
-            event.reply(u"no can do")
-            return
+            if "+"+target in names:
+                event.reply(u"{0} already has voice".format(target))
+                return
 
-        if target not in names:
+            if "@"+target in names:
+                event.reply(u"no can do")
+                return
+        
+        if target not in names and "+"+target not in names:
             event.reply(u"who?")
             return
 
-        self.transport.issue_request("ircop.devoice", channel=channel, target=requestor)
-        try:
-            yield self.transport.issue_request("ircop.voice", channel=channel, target=target)
-        except ircop.OpFailed, e:
-            event.reply("Oops, something went wrong and I could not change the channel mode")
-            log.msg(str(e))
-            return
+        if "+"+requestor in names:
+            self.transport.issue_request("ircop.devoice", channel=channel, target=requestor)
+
+        if "+"+target not in names:
+            try:
+                yield self.transport.issue_request("ircop.voice", channel=channel, target=target)
+            except ircop.OpFailed, e:
+                event.reply("Oops, something went wrong and I could not change the channel mode")
+                log.msg(str(e))
+                return
 
         event.reply(u"Bam!")
         
