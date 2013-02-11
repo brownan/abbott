@@ -386,9 +386,10 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def voice(self, event, match):
         groupdict = match.groupdict()
-        nicks = groupdict['nicks'].split()
-        if not nicks:
+        if not groupdict['nicks']:
             nicks = [event.user.split("!",1)[0]]
+        else:
+            nicks = groupdict['nicks'].split()
         channel = event.channel
 
         ds = [
@@ -406,9 +407,10 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def devoice(self, event, match):
         groupdict = match.groupdict()
-        nicks = groupdict['nicks'].split()
-        if not nicks:
+        if not groupdict['nicks']:
             nicks = [event.user.split("!",1)[0]]
+        else:
+            nicks = groupdict['nicks'].split()
         channel = event.channel
 
         ds = [
@@ -426,9 +428,10 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def give_op(self, event, match):
         groupdict = match.groupdict()
-        nicks = groupdict['nicks'].split()
-        if not nicks:
+        if not groupdict['nicks']:
             nicks = [event.user.split("!",1)[0]]
+        else:
+            nicks = groupdict['nicks'].split()
         channel = event.channel
 
         ds = [
@@ -446,9 +449,10 @@ class IRCAdmin(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def take_op(self, event, match):
         groupdict = match.groupdict()
-        nicks = groupdict['nicks'].split()
-        if not nicks:
+        if not groupdict['nicks']:
             nicks = [event.user.split("!",1)[0]]
+        else:
+            nicks = groupdict['nicks'].split()
         channel = event.channel
 
         ds = [
