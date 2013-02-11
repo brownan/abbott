@@ -208,7 +208,7 @@ class OpProvider(EventWatcher, BotPlugin):
         # Choose the appropriate handler here.
         reqname = reqname.split(".")[-1]
         if reqname in self.CONNECTOR_REQS:
-            self._do_connector_operation(reqname, *args, **kwargs)
+            return self._do_connector_operation(reqname, *args, **kwargs)
         elif reqname in self.OTHER_REQS:
             return getattr(self, "_do_{0}".format(reqname))(*args, **kwargs)
 
@@ -361,7 +361,7 @@ class OpProvider(EventWatcher, BotPlugin):
             # the deferreds.
             for operation, param, d in self.connector_buffer.pop(channel, set()):
                 try:
-                    self.transport.issue_request(
+                    yield self.transport.issue_request(
                             "connector.{0}.{1}".format(
                                 self.config['opmethod'][channel][operation],
                                 operation),
@@ -391,7 +391,7 @@ class OpProvider(EventWatcher, BotPlugin):
                 d.errback(e)
             for operation, param, d in self.connector_buffer.pop(channel, set()):
                 try:
-                    self.transport.issue_request(
+                    yield self.transport.issue_request(
                             "connector.{0}.{1}".format(
                                 self.config['opmethod'][channel][operation],
                                 operation),
