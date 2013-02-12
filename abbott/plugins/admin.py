@@ -320,8 +320,8 @@ class IRCAdmin(CommandPluginSuperclass):
         
         self.install_command(
                 cmdname="mode",
-                cmdusage="[+-]<mode_letter> [param] (for|until|in <time>)",
-                argmatch="(?P<mode>[+-][a-zA-Z])(?: (?P<param>[^ ]+))?(?: (?P<timespec>(?:for|until|in) .+))?$",
+                cmdusage="[+-]<mode_letter> [param] (for|until|in|at <time>)",
+                argmatch="(?P<mode>[+-][a-zA-Z])(?: (?P<param>[^ ]+))?(?: (?P<timespec>(?:for|until|in|at) .+))?$",
                 permission="irc.op.mode",
                 callback=self.mode,
                 helptext="Sets a channel mode",
@@ -739,7 +739,9 @@ class IRCAdmin(CommandPluginSuperclass):
             except ValueError, e:
                 event.reply(e)
 
-            if timespec.startswith("in"):
+            if timespec.startswith("in") or timespec.startswith("at"):
+                # 'in' or 'at' indicate this is when we want to do the mode. as
+                # opposed to 'do the mode until/for <time> and then revert it'
                 self._set_timer(time_to_wait, param, channel, mode)
                 event.reply("Doing a {0} {1} in {2:.0f} seconds".format(
                     mode, param, time_to_wait))
