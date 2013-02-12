@@ -265,6 +265,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         self.shutdown_trigger = reactor.addSystemEventTrigger("before", "shutdown", shutdown)
 
         self.provides_request("irc.getnick")
+        self.provides_request("irc.get_channel_mode_params")
 
     def stop(self):
         log.msg("IRCBotPlugin stopping...")
@@ -340,6 +341,9 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
 
     def on_request_irc_getnick(self):
         return defer.succeed(self.client.nickname)
+
+    def on_request_irc_get_channel_mode_params(self):
+        return self.client.getChannelModeParams()
 
 
 class IRCController(CommandPluginSuperclass):

@@ -132,9 +132,9 @@ class IRCAdmin(CommandPluginSuperclass):
                             channel=channel,
                             mode=mode,
                             param=param)
-            except ircop.OpFailed, e:
-                s = "I was about to un-{0} {1}, but {2}".format(
-                        {'q':'quiet','b':'ban'}[mode],
+            except (ircop.OpFailed, ValueError), e:
+                s = "I was about to do a {0} {1}, but {2}".format(
+                        mode,
                         param,
                         e,
                         )
@@ -749,8 +749,9 @@ class IRCAdmin(CommandPluginSuperclass):
 
         try:
             yield self.transport.issue_request("ircop.mode", channel, mode, param)
-        except ircop.OpFailed, e:
+        except (ircop.OpFailed, ValueError), e:
             event.reply(str(e))
+            return
 
         if timespec:
             reversemode = {"-":"+","+":"-"}[mode[0]] + mode[1]

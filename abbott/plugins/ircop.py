@@ -577,6 +577,7 @@ class OpProvider(EventWatcher, BotPlugin):
         # d will return when the request is fulfilled or err trying
         yield d
 
+    @defer.inlineCallbacks
     def _do_mode(self, channel, mode, param=None):
         """Called to implement ircop.mode. Handles arbitrary mode requests that
         aren't handled by a connector. This method never uses a connector and
@@ -597,6 +598,20 @@ class OpProvider(EventWatcher, BotPlugin):
         issue more than one request.
 
         """
+        # First do some error checking. The add list and remove list are the
+        # channel modes that take parameters when being added and removed,
+        # respectively.
+        add_params, rem_params = (yield self.transport.issue_request("irc.get_channel_mode_params"))
+        if len(mode) != 2 or mode[0] not in ("+","-"):
+            raise ValueError("Invalid mode string")
+        if mode[0] == "+":
+            chklist = add_params
+        else:
+            chklist = rem_params
+        if mode[1] in chklist and not param:
+            raise ValueError("You must specify a parameter with {0}".format(mode))
+        elif mode[1] not in chklist and param:
+            raise ValueError("Mode {0} does not take a parameter".format(mode))
 
         # Add the mode request(s) to the buffer
         d = defer.Deferred()
@@ -608,7 +623,7 @@ class OpProvider(EventWatcher, BotPlugin):
         # through the returned deferred.
         self._set_buffer_processor_timer(channel)
         self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
-        return d
+        yield d
 
     @defer.inlineCallbacks
     def _do_become_op(self, channel, duration):
