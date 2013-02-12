@@ -19,7 +19,7 @@ from . import ircutil
 from . import ircop
 
 def parse_time(timestr):
-    """Parses a time string and returns the number of seconds to wait
+    """Parses a time string and returns the number of seconds from now to wait
 
     """
     c = Calendar()
@@ -42,9 +42,9 @@ class IRCAdmin(CommandPluginSuperclass):
     def __init__(self, *args):
         self.started = False
 
-        # This dictionary maps tuples of (hostmask, channel, mode) to twisted timer
-        # objects. When the timer fires, the mode is unset on the given channel
-        # for the given hostmask
+        # This dictionary maps tuples of (param, channel, mode) to twisted
+        # timer objects. When the timer fires, the mode is set/unset on the
+        # given channel with the given parameter
         self.later_timers = {}
 
 
@@ -65,25 +65,27 @@ class IRCAdmin(CommandPluginSuperclass):
         for timer in self.later_timers.itervalues():
             timer.cancel()
 
-        for activatetime, hostmask, channel, mode in self.config['laters']:
-            self._set_timer(activatetime - time.time(), hostmask, channel, mode)
+        for activatetime, param, channel, mode in self.config['laters']:
+            self._set_timer(activatetime - time.time(), param, channel, mode)
 
 
-    def _set_timer(self, delay, hostmask, channel, mode):
-        """In delay seconds, issue a -mode request for hostmask on channel
+    def _set_timer(self, delay, param, channel, mode):
+        """In delay seconds, issue a mode request with the given parameter on
+        channel
         
-        mode is either 'q' or 'b'
+        mode is a two character string where the first character is + or - and
+        the second character is a letter
         
         """
         # First, cancel any existing timers and remove any existing saved
         # laters from the config that match this one.
-        if (hostmask, channel, mode) in self.later_timers:
-            timer = self.later_timers.pop((hostmask, channel, mode))
+        if (param, channel, mode) in self.later_timers:
+            timer = self.later_timers.pop((param, channel, mode))
             timer.cancel()
 
         # Filter out any events that match this one from the persistent config
         self.config['laters'] = [item for item in self.config['laters']
-                if not (item[1] == hostmask and
+                if not (item[1] == param and
                        item[2] == channel and
                        item[3] == mode
                        )]
@@ -91,13 +93,13 @@ class IRCAdmin(CommandPluginSuperclass):
         # This function will be run later
         @defer.inlineCallbacks
         def do_later():
-            log.msg("timed request: -%s for %s in %s" % (mode, hostmask, channel))
+            log.msg("timed request: %s for %s in %s" % (mode, param, channel))
             # First, take this item out of the mapping
-            del self.later_timers[(hostmask, channel, mode)]
+            del self.later_timers[(param, channel, mode)]
 
             # And the persistent config
             self.config['laters'] = [item for item in self.config['laters']
-                    if not (item[1] == hostmask and
+                    if not (item[1] == param and
                            item[2] == channel and
                            item[3] == mode
                            )]
@@ -105,17 +107,35 @@ class IRCAdmin(CommandPluginSuperclass):
 
             # Now send the event
             try:
-                yield self.transport.issue_request(
-                        "ircop.{0}".format(
-                            {"b":"unban","q":"unquiet"}[mode]
-                            ),
-                        channel=channel,
-                        target=hostmask
-                        )
+                try:
+                    # If we can call a specific request, do so
+                    yield self.transport.issue_request(
+                            "ircop.{0}".format(
+                                {
+                                    "+b":"ban",
+                                    "+q":"quiet",
+                                    "+o":"op",
+                                    "-o":"deop",
+                                    "+v":"voice",
+                                    "-v":"devoice",
+                                    "-b":"unban",
+                                    "-q":"unquiet"
+                                    }[mode]
+                                ),
+                            channel=channel,
+                            target=param
+                            )
+                except KeyError:
+                    # ...otherwise, just use the generic mode call
+                    yield self.transport.issue_request(
+                            "ircop.mode",
+                            channel=channel,
+                            mode=mode,
+                            param=param)
             except ircop.OpFailed, e:
                 s = "I was about to un-{0} {1}, but {2}".format(
                         {'q':'quiet','b':'ban'}[mode],
-                        hostmask,
+                        param,
                         e,
                         )
                 self.transport.send_event(Event("irc.do_msg",
@@ -127,19 +147,19 @@ class IRCAdmin(CommandPluginSuperclass):
         # Now submit the do_later() function to twisted to call it later
         timer = reactor.callLater(max(1,delay), do_later)
 
-        log.msg("Setting -{0} on {1} in {2} in {3} seconds".format(
+        log.msg("Setting {0} on {1} in {2} in {3} seconds".format(
             mode,
-            hostmask,
+            param,
             channel,
             max(1,delay),
             ))
 
         # and file this timer away:
-        self.later_timers[(hostmask, channel, mode)] = timer
+        self.later_timers[(param, channel, mode)] = timer
 
         # Save to the persistent config
         self.config['laters'].append(
-                (time.time()+delay, hostmask, channel, mode)
+                (time.time()+delay, param, channel, mode)
                 )
         self.config.save()
         
@@ -149,25 +169,28 @@ class IRCAdmin(CommandPluginSuperclass):
 
         """
         if event.set == False:
-            mode = event.mode
-            user = event.arg
-            channel = event.channel
+            mode = "-"+event.mode
+        else:
+            mode = "+"+event.mode
 
-            # Cancel any pending timers for this
-            try:
-                timer = self.later_timers.pop((user, channel, mode))
-            except KeyError:
-                pass
-            else:
-                timer.cancel()
+        user = event.arg
+        channel = event.channel
 
-                # Also filter out the persistent config entry
-                self.config['laters'] = [item for item in self.config['laters']
-                        if not (item[1] == user and
-                               item[2] == channel and
-                               item[3] == mode
-                               )]
-                self.config.save()
+        # Cancel any pending timers for this
+        try:
+            timer = self.later_timers.pop((user, channel, mode))
+        except KeyError:
+            pass
+        else:
+            timer.cancel()
+
+            # Also filter out the persistent config entry
+            self.config['laters'] = [item for item in self.config['laters']
+                    if not (item[1] == user and
+                           item[2] == channel and
+                           item[3] == mode
+                           )]
+            self.config.save()
 
 
     def stop(self):
@@ -297,8 +320,8 @@ class IRCAdmin(CommandPluginSuperclass):
         
         self.install_command(
                 cmdname="mode",
-                cmdusage="[+-]<mode_letter> [param]",
-                argmatch="(?P<mode>[+-][a-zA-Z])(?: (?P<param>[^ ]+))?$",
+                cmdusage="[+-]<mode_letter> [param] (for|until|in <time>)",
+                argmatch="(?P<mode>[+-][a-zA-Z])(?: (?P<param>[^ ]+))?(?: (?P<timespec>(?:for|until|in) .+))?$",
                 permission="irc.op.mode",
                 callback=self.mode,
                 helptext="Sets a channel mode",
@@ -608,7 +631,7 @@ class IRCAdmin(CommandPluginSuperclass):
         if duration:
             # only set the timer if the request succeeds
             def s(a):
-                self._set_timer(duration, hostmask, channel, mode)
+                self._set_timer(duration, hostmask, channel, "-"+mode)
                 return a
             req.addCallback(s)
 
@@ -679,7 +702,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def _do_modederequest(self, channel, mode, hostmask, delay):
         """See _do_moderequest()"""
         if delay:
-            self._set_timer(delay, hostmask, channel, mode)
+            self._set_timer(delay, hostmask, channel, "-"+mode)
             return defer.succeed(None)
 
         log.msg("-%s for %s in %s" % (mode, hostmask, channel))
@@ -708,11 +731,28 @@ class IRCAdmin(CommandPluginSuperclass):
         gd = match.groupdict()
         mode = gd['mode']
         param = gd['param']
+        timespec = gd['timespec']
+
+        if timespec:
+            try:
+                time_to_wait = parse_time(timespec)
+            except ValueError, e:
+                event.reply(e)
+
+            if timespec.startswith("in"):
+                self._set_timer(time_to_wait, param, channel, mode)
+                event.reply("Doing a {0} {1} in {2:.0f} seconds".format(
+                    mode, param, time_to_wait))
+                return
 
         try:
             yield self.transport.issue_request("ircop.mode", channel, mode, param)
         except ircop.OpFailed, e:
             event.reply(str(e))
+
+        if timespec:
+            reversemode = {"-":"+","+":"-"}[mode[0]] + mode[1]
+            self._set_timer(time_to_wait, param, channel, reversemode)
 
     @require_channel
     @defer.inlineCallbacks
