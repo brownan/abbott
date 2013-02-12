@@ -331,7 +331,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="m",
                 permission="irc.op.m",
                 callback=self.moderatedmode,
-                helptext="Sets +m on the channel to quiet it in an emergency",
+                helptext="FOR EMERGENCY USE ONLY! Sets +m on the channel to quiet it in an emergency",
                 )
 
     @defer.inlineCallbacks
