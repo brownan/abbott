@@ -1,18 +1,8 @@
 Ideas for the Future!
 =====================
 
-* test ircop error contitions. Particularly: if chanserv never responds (due to
-  netsplit, etc). We should get an error timeout after 20-30 seconds, but there
-  may be a bug because this happened and it never errored. (operations sent via
-  a connector we get no error, but operations which we need to op and then do
-  something we timeout. Maybe we should follow through on various connector
-  operations?)
-
-  also if a connector is not loaded. Errors all around don't seem to be
-  propagating back to their callers correctly.
-
-* Optional maximum ban/quiet timer, for channels whose ban/quiet lists are
-  prone to filling up.
+* Optional maximum/default ban/quiet timer, for channels whose ban/quiet lists
+  are prone to filling up.
 
 * Get rid of per-command prefixes. They're unconfigurable and complicate the
   code and nobody uses them anyways.
@@ -28,18 +18,6 @@ Ideas for the Future!
   "control" channel. Perhaps it should emit an event that plugins can handle as
   they see fit, and the irc plugin can echo it to the control channel.
 
-* Make a decorator to declare a command for command plugins. I don't like
-  having to declare commands in the start() method and then have the
-  implementation elsewhere in the file. Those two should be near each other. I
-  think I could figure something out with metaclasses and class decorators that
-  is compatible with the existing code.
-
-  On the other hand, having all the commands declared in one place has its
-  advantages. The declarations serve as sort of a reference all in one place,
-  instead of having to comb through all the code. Maybe the right solution is
-  to declare the commands in some kind of data structure instead of a bunch of
-  calls to install_command() (if only this were lisp, rite? lol)
-
 * votd: remember nickserv account names and host masks to re-voice people that
   have left
 
@@ -50,22 +28,11 @@ Ideas for the Future!
 * Recognize other punctuation as part of the command prefix. <botname>: as well
   as <botname>, at least
 
-* ircop: Determine which modes take a parameter so we can do error checking in
-  !mode command. This is related to the next point.
-
 * ircop: Determine the irc server's supported maximum number of modes that can
   be issued in a single MODE command, and change the ircop mode batching to
   match.  The twisted irc client already gets this value and stores it in the
   clientobj.supported somewhere, I think. I just need to find the right value
   and use it.
-
-* Generalize the timed actions in the admin plugin. I should be able to set +c
-  or +t or +r and then set a timer to set -t or -c or -r again. Besides that,
-  it bugs me that the timed operations are hard coded for only -q and -b. This
-  seems like an easy opportunity for generalization.
-
-  TL;DR: every admin command should accept the "for" or "until" keyword to set
-  a time to undo the operation.
 
 * Long term: redo the command plugin workflow. Instead of having command
   plugins inherit from a special base class which takes care of parsing
@@ -115,3 +82,8 @@ Ideas for the Future!
   still show up in the global help. hmm. Maybe the command restructuring would
   help here, since we could filter on commands instead of incoming messages,
   and the help system would be aware of commands and could hook into that.
+
+  Maybe I just don't worry about the help system at all. I just declare that
+  commands listed in the help listing may or may not work in every channel. I
+  think I have more motivation for this change than the command system overhaul
+  so this may be the best option considering the circumstances.
