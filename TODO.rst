@@ -14,6 +14,22 @@ Ideas for the Future!
   that bad. That should be plenty of time for an OP ot take additional action
   if it was legit.
 
+* This point is more abstract, but it would be nice to have a generalized way
+  to say "I want this to happen in X seconds". The admin plugin does this, but
+  only for modes, and it does all the heavy lifting itself right in the plugin.
+  I'd like to abstract this and generalize it. Perhaps as its own plugin, or
+  maybe add the functionality as a mixin. I say it's abstract because I don't
+  have yet a good idea of the best way to accomplish this goal, just the goal
+  itself.
+
+  Thoughts: a mixin is probably a better idea. It would give plugins more
+  control over the process. If it were a standalone plugin that other plugins
+  could make a "later request" to then it seems like that would be much more
+  restrictive of a workflow.  How would I report errors? How would I cancel
+  something previously scheduled? Would I have to deal with serialization? A
+  mixin could simply call some dispatch method for laters and the plugin could
+  do whatever it wants.
+
 * Fix up logging. I want logging that is actually useful, tells which plugin
   it's coming from, the ability to turn logging on and off per plugin/module,
   colorized for different levels, etc. I'm thinking it may be good to just
