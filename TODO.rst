@@ -7,6 +7,13 @@ Ideas for the Future!
 * Get rid of per-command prefixes. They're unconfigurable and complicate the
   code and nobody uses them anyways.
 
+* Some kind of spam detector / rate limiter to quickly quiet users that are
+  spamming. To negate false positives I think it could also take into account
+  if the user is using webchat or not. Webchat users are more often spammers.
+  Punishment should be a 10 second quiet, so even on a false positive it's not
+  that bad. That should be plenty of time for an OP ot take additional action
+  if it was legit.
+
 * Fix up logging. I want logging that is actually useful, tells which plugin
   it's coming from, the ability to turn logging on and off per plugin/module,
   colorized for different levels, etc. I'm thinking it may be good to just
