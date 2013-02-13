@@ -326,7 +326,8 @@ class URLShortener(BotPlugin):
 
 class Owner(CommandPluginSuperclass):
     """Just a simple plugin to print out the bot's owner. There is no online
-    config interface, so edit the json yourself and issue a configreload.
+    config interface, so edit the json yourself and issue a configreload to
+    set.
 
     """
     def start(self):
@@ -336,9 +337,19 @@ class Owner(CommandPluginSuperclass):
                 helptext="Display who owns me",
                 callback=self.do_owner,
                 )
+        self.install_command(
+                cmdname="code",
+                helptext="Replies with a link to my code. I'm open source!",
+                callback=self.do_code,
+                )
 
     def do_owner(self, event, match):
         if "owner" in self.config:
             event.reply(u"My owner is " + self.config['owner'])
         else:
             event.reply(u"I... I don't know! /me cries")
+    def do_code(self, event, match):
+        if "code" in self.config:
+            event.reply(self.config["code"])
+        else:
+            event.reply(u"No repository configured. Please ask the owner to set one in the config", direct=True, notice=True)
