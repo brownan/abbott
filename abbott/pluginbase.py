@@ -1,3 +1,4 @@
+# encoding: UTF-8
 from __future__ import print_function
 
 import json
@@ -445,8 +446,10 @@ class EventWatcher(object):
             return d
 
 def non_reentrant(**keyargs_def):
-    """This is a handy utility to decorate a function and will prevent a second
-    call to the function with the same key from entering the function.
+    """This is a handy function decorator that will pass through the first call
+    to the function, but prevent a second call to the function with the same
+    key from entering the function until the first one finishes, at which point
+    both calls get the same result.
 
     More precisely, this function returns a decorator for a function which is
     expected to return a deferred. Only one execution of the function per key
@@ -464,13 +467,13 @@ def non_reentrant(**keyargs_def):
     keyargs_def is a dictionary mapping keyword argument names (in **kwargs) to the
     positional index (in *args), as a way of declaring the arguments you want
     part of the key.  The positional index can be None if the argument to key
-    is keyword only, not positional.  Remember, positional arguments start at 0
+    is keyword only—not positional.  Remember, positional arguments start at 0
     and that includes the 'self' paramater of methods. If the keyword and
     positional arguments do not match, behavior is undefined.
 
     example:
 
-        @non_reentrant(channel=1)
+        @non_reentrant(self=0, channel=1)
         @defer.inlineCallbacks
         def compute_value(self, channel, param, somethingelse):
             ...
@@ -484,12 +487,13 @@ def non_reentrant(**keyargs_def):
     compute_value() to finish, at which point both callers get the return value
     `value`.
 
-    (Warning, any non-key arguments are ignored for all but the original
-    invocation, since the function isn't called more than once at a time.)
+    Warning, any arguments not part of the declared key are ignored for all but
+    the original invocation, since the function isn't called more than once at
+    a time.
 
     Also note that it is unnecessary to include the `self` parameter of methods
     only because in this framework there is only ever one instance of each
-    plugin object. If you are using this decorator in other situations, you may
+    plugin object. If you are using this decorator in other situations, you
     need to declare self=0. The reason is since the entrants are stored in a
     closure of the decorator function, it is stored per-class, not
     per-instance.
@@ -507,7 +511,7 @@ def non_reentrant(**keyargs_def):
             # note that this stores key arguments in the order returned from
             # this dictionary, which depends the order being consistent.
             # Dictionary order is guaranteed not to change as long as it
-            # doesn't mutate.
+            # doesn't mutate, so this is okay.
             for kwarg, posarg in keyargs_def.iteritems():
                 if posarg is not None and len(args) > posarg:
                     key_arguments.append(args[posarg])
