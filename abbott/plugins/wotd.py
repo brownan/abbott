@@ -215,7 +215,7 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
         # This delay is a bit of a hack. If we do e.g. a configreload, and this
         # handler happens to run before the reload, this will save the config,
         # clobbering the new one. So here we wait a second to let the other
-        # handler run, reload our config, THEN we increment the counter.
+        # handler run, reload our config, THEN we proceded with this method
         yield self.wait_for(timeout=1)
 
         if event.channel == self.config["channel"]:
@@ -241,8 +241,6 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
 
                 else:
                     # They won legit. Grant voice
-                    self.lastwintime = time.time()
-                    self.winlines.append(event.message.lower())
 
                     self.config['winners'].append(nick)
                     log.msg("User {0} has guessed the word of the day".format(nick))
@@ -251,10 +249,16 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
                     # Warning: to avoid a rare race condition, the maximum
                     # delay here must be less than the configured waittime
                     yield self.wait_for(timeout=random.randint(5,min(30, self.config['idle_time']-1)))
+
+                    # Set the last win time and add the winning line to the
+                    # list *after* the delay, so there is no confusion
+                    # involving people getting kicked for lines that look
+                    # innocent
+                    self.lastwintime = time.time()
+                    self.winlines.append(event.message.lower())
                     yield self.transport.issue_request("ircop.voice", event.channel, nick)
 
                     if len(self.config['winners']) >= self.config['maxwinners']:
-                        yield self.wait_for(timeout=5)
                         self.transport.send_event(Event("irc.do_msg",
                             user=event.channel,
                             message=u"That’s all the hats! Congrats to our winners. Until tomorrow…",
