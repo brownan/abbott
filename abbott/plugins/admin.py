@@ -214,7 +214,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdusage="<nickname> [reason]",
                 argmatch = "(?P<nick>[^ ]+)( (?P<reason>.*))?$",
                 permission="irc.op.kick",
-                prefix=".",
                 callback=self.kick,
                 deniedcallback=self.kickself,
                 helptext="Kicks a user from the current channel")
@@ -222,7 +221,6 @@ class IRCAdmin(CommandPluginSuperclass):
         # Op commands
         self.install_command(
                 cmdname="op",
-                prefix=".",
                 cmdusage="[nick] ...",
                 argmatch="(?P<nicks>.+)?",
                 permission="irc.op.op",
@@ -231,7 +229,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 )
         self.install_command(
                 cmdname="deop",
-                prefix=".",
                 cmdusage="[nick] ...",
                 argmatch="(?P<nicks>.+)?",
                 permission="irc.op.op",
@@ -246,7 +243,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdusage="[nick] ...",
                 argmatch = "(?P<nicks>.+)?$",
                 permission="irc.op.voice",
-                prefix=".",
                 callback=self.voice,
                 helptext="Grants a user voice in the current channel"
                 )
@@ -257,7 +253,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdusage="[nick] ...",
                 argmatch = "(?P<nicks>.+)?$",
                 permission="irc.op.voice",
-                prefix=".",
                 callback=self.devoice,
                 helptext="Revokes a user's voice in the current channel"
                 )
@@ -268,7 +263,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch="quiet|QUIET|mute",
                 cmdusage="<nick or hostmask> [for <duration>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
-                prefix=".",
                 permission="irc.op.quiet",
                 callback=self.quiet,
                 deniedcallback=self.quietself,
@@ -280,7 +274,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch="unquiet|UNQUIET|unmute|dequiet",
                 cmdusage="<nick or hostmask> [in <delay>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
-                prefix=".",
                 permission="irc.op.quiet",
                 callback=self.unquiet,
                 helptext="Un-quiets a user"
@@ -290,9 +283,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="ban",
                 cmdmatch="ban|BAN",
-                cmdusage="<nick or hostmask> [for <duration>] [reason]",
+                cmdusage="<nick or hostmask> [for <duration>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
-                prefix=".",
                 permission="irc.op.ban",
                 callback=self.ban,
                 helptext="Bans a user."
@@ -303,7 +295,6 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdmatch="unban|UNBAN",
                 cmdusage="<nick or hostmask> [in <delay>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
-                prefix=".",
                 permission="irc.op.ban",
                 callback=self.unban,
                 helptext="Un-bans a user"
@@ -508,7 +499,7 @@ class IRCAdmin(CommandPluginSuperclass):
             hostmask = (yield self._nick_to_hostmask(target))
         except ircutil.NoSuchNick:
             event.reply("There is no user by that nick on the network. "
-                        "Try {0}!*@* to quiet anyone with that nick, or specify your own hostmask.".format(
+                        "Try {0}!*@* to quiet anyone with that nick, or specify a full hostmask.".format(
                         target,
                         ))
             return
@@ -575,7 +566,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 hostmask = (yield self._nick_to_hostmask(target))
             except ircutil.NoSuchNick:
                 event.reply("There is no user by that nick on the network. "
-                            "Try {0}!*@* to ban anyone with that nick, or specify your own hostmask.".format(
+                            "Try {0}!*@* to ban anyone with that nick, or specify a full hostmask.".format(
                             nick,
                             ))
                 return
@@ -763,15 +754,20 @@ class IRCAdmin(CommandPluginSuperclass):
         channel = event.channel
         nick = event.user.split("!",1)[0]
 
-        req1 = self.transport.issue_request("ircop.mode", channel, "+m")
-        req2 = self.transport.issue_request("ircop.op", channel, nick)
+        if "m" not in (yield self.transport.issue_request("irc.chanmode", channel))[0]:
+            log.msg("Setting moderated mode on {0}".format(channel))
+            req1 = self.transport.issue_request("ircop.mode", channel, "+m")
+            req2 = self.transport.issue_request("ircop.op", channel, nick)
+        else:
+            log.msg("Un-setting moderated mode on {0}".format(channel))
+            req1 = self.transport.issue_request("ircop.mode", channel, "-m")
+            req2 = self.transport.issue_request("ircop.deop", channel, nick)
+
         try:
             yield req1
             yield req2
         except ircop.OpFailed, e:
             event.reply(str(e))
-        else:
-            log.msg("Moderated mode on")
 
 class IRCTopic(CommandPluginSuperclass):
     """Topic manipulation commands.
@@ -791,7 +787,7 @@ class IRCTopic(CommandPluginSuperclass):
 
         topicgroup.install_command(
                 cmdname="append",
-                cmdmatch="append|push",
+                cmdmatch="append|push|add",
                 cmdusage="<text>",
                 argmatch="(?P<text>.+)$",
                 permission=None, # Inherits permissions from the group

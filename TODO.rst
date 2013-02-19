@@ -5,7 +5,9 @@ Ideas for the Future!
   are prone to filling up.
 
 * Get rid of per-command prefixes. They're unconfigurable and complicate the
-  code and nobody uses them anyways.
+  code and nobody uses them anyways. Similar: per-chanel prefixes instead of
+  one global prefix. This may sort of depend on the command restructuring idea
+  though (see below)
 
 * Some kind of spam detector / rate limiter to quickly quiet users that are
   spamming. To negate false positives I think it could also take into account
@@ -56,6 +58,17 @@ Ideas for the Future!
   match.  The twisted irc client already gets this value and stores it in the
   clientobj.supported somewhere, I think. I just need to find the right value
   and use it.
+
+* Delete or update the docs. Inaccurate docs are worse than no docs. Plus I
+  think the code is mostly self explanatory. My original intent was to have the
+  docs be a reference of sorts that I could use to remind myself e.g. of what
+  permissions did what, and other pieces of the internal apis. I should have
+  known I wouldn't keep it up to date.
+
+* Add in a group abstraction for permissions. It was pretty stupid of me not to
+  do this from the start. 4 years of security research on fancy abstractions
+  for specifying authorization and authentication and I go and do a stupid
+  access list for my bot.
 
 * Long term: redo the command plugin workflow. Instead of having command
   plugins inherit from a special base class which takes care of parsing
