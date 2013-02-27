@@ -194,7 +194,7 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
         else:
             say(u"Starting the Word of the Day game!")
         yield self.wait_for(timeout=2)
-        say("Guess the word of the day and receive voice! (no spamming)")
+        say("Guess the word of the day and receive a hat! (no spamming)")
 
         # Choose a new word
         self.config['theword'] = random.choice(self.words)
@@ -228,7 +228,9 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
             words = set(x.strip(string.punctuation) for x in event.message.lower().split())
             if self.config['theword'] in words:
 
-                if event.message.lower() in self.winlines and time.time() - self.lastwintime < 60*2:
+                if (event.message.lower() != self.config['theword'] and 
+                        event.message.lower() in self.winlines and
+                        time.time() - self.lastwintime < 60*2):
                     # if you repeated a message verbatim by a winner from the
                     # last 2 minutes...
                     self.transport.issue_request("ircop.kick", event.channel, nick, "What are you, a parrot?")
