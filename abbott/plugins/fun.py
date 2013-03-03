@@ -40,7 +40,7 @@ class RMSPlugin(CommandPluginSuperclass):
         else:
             self.recent[user] = time.time()
 
-        quote = u"""
+        quote = """
 I’d just like to interject for a moment. What you’re refering to as {0}, is in fact, GNU/{0}, or as I’ve recently taken to calling it, GNU plus {0}.
 {1} is not an operating system unto itself, but rather another free component of a fully functioning GNU system made useful by the GNU corelibs, shell utilities and vital system components comprising a full OS as defined by POSIX.
 
@@ -156,7 +156,7 @@ class Sneeze(BotPlugin):
     def stop(self):
         super(Sneeze, self).stop()
 
-        for t in self.timers.itervalues():
+        for t in self.timers.values():
             t.cancel()
 
     def on_event_irc_on_privmsg(self, event):

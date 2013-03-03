@@ -1,5 +1,5 @@
 # encoding: UTF-8
-from StringIO import StringIO
+from io import StringIO
 
 from twisted.web.client import Agent
 from twisted.internet import reactor
@@ -76,7 +76,7 @@ class IcecastStatus(CommandPluginSuperclass):
         count = 0
         for stream in streams:
             count += 1
-            replystr = u'{title:<{maxtitlelen}} — {song} [{listeners} listener{s}]'.format(
+            replystr = '{title:<{maxtitlelen}} — {song} [{listeners} listener{s}]'.format(
                 title=stream['Stream Title'],
                 listeners=stream['Current Listeners'],
                 s='s' if '1'!=stream['Current Listeners'] else '',

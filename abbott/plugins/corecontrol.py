@@ -34,7 +34,7 @@ class CoreControl(CommandPluginSuperclass):
             event.reply("There was a problem loading the new json. Check for syntax errors maybe? Full traceback in log")
             raise
         # Each plugin will reload their individual json files when we call reload()
-        for plugin in self.pluginboss.loaded_plugins.itervalues():
+        for plugin in self.pluginboss.loaded_plugins.values():
             plugin.reload()
         event.reply("Config reloaded!")
         
@@ -56,7 +56,7 @@ class Help(CommandPluginSuperclass):
     @defer.inlineCallbacks
     def display_help(self, event, match):
         command_groups = []
-        for plugin in self.pluginboss.loaded_plugins.itervalues():
+        for plugin in self.pluginboss.loaded_plugins.values():
             try:
                 command_groups.extend(plugin.cmdgs)
             except AttributeError:
@@ -110,7 +110,7 @@ class Help(CommandPluginSuperclass):
                             ", ".join(globalcommands)
                             ))
 
-            for channel, cmds in channelcommands.iteritems():
+            for channel, cmds in channelcommands.items():
                 event.reply(notice=True, direct=True,
                         msg="In %s you can execute: %s" % (
                             channel, ", ".join(cmds)

@@ -68,7 +68,7 @@ class Transport(object):
         # being modified somewhere down the stack in an event handler
 
         # First call all middleware
-        for callback_name, callback_obj_set in self._middleware_listeners.items():
+        for callback_name, callback_obj_set in list(self._middleware_listeners.items()):
             callback_parts = [re.escape(x) for x in callback_name.split("*")]
             callback_match = "[^. ]+".join(callback_parts) + "$"
             if re.match(callback_match, event.eventtype):
@@ -84,7 +84,7 @@ class Transport(object):
                         return
 
         # Now call the event handlers
-        for callback_name, callback_obj_set in self._event_listeners.items():
+        for callback_name, callback_obj_set in list(self._event_listeners.items()):
             callback_match = callback_name.replace("*", "[^.]+") + "$"
             if re.match(callback_match, event.eventtype):
                 # create a new set since the set may mutate while we iterate over it
@@ -119,7 +119,7 @@ class Transport(object):
 
         try:
             toret = obj.incoming_request(name, *args, **kwargs)
-        except Exception, e:
+        except Exception as e:
             return defer.fail(e)
 
         # Programming convenience: request implementations can return a
@@ -142,10 +142,10 @@ class Transport(object):
     ### Called on plugin unloading
 
     def unhook_plugin(self, plugin):
-        for obj_set in chain(self._middleware_listeners.itervalues(),
-                self._event_listeners.itervalues()):
+        for obj_set in chain(iter(self._middleware_listeners.values()),
+                iter(self._event_listeners.values())):
             obj_set.discard(plugin)
-        for reqname, obj in self._request_listeners.items():
+        for reqname, obj in list(self._request_listeners.items()):
             if obj is plugin:
                 del self._request_listeners[reqname]
 

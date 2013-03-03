@@ -10,7 +10,7 @@ from twisted.internet import defer
 try:
     from parsedatetime.parsedatetime import Calendar
 except ImportError:
-    print "Please install the pip package parsedatetime"
+    print("Please install the pip package parsedatetime")
     raise
 
 from ..command import CommandPluginSuperclass, require_channel
@@ -62,7 +62,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def _set_all_timers(self):
         """Reads from the config and syncs the twisted timers with that"""
 
-        for timer in self.later_timers.itervalues():
+        for timer in self.later_timers.values():
             timer.cancel()
 
         for activatetime, param, channel, mode in self.config['laters']:
@@ -132,7 +132,7 @@ class IRCAdmin(CommandPluginSuperclass):
                             channel=channel,
                             mode=mode,
                             param=param)
-            except (ircop.OpFailed, ValueError), e:
+            except (ircop.OpFailed, ValueError) as e:
                 s = "I was about to do a {0} {1}, but {2}".format(
                         mode,
                         param,
@@ -196,7 +196,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def stop(self):
         super(IRCAdmin, self).stop()
 
-        for timer in self.later_timers.itervalues():
+        for timer in self.later_timers.values():
             timer.cancel()
         
     def start(self):
@@ -376,7 +376,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             yield self.transport.issue_request("ircop.kick", channel=channel,
                 target=nick, reason=reason)
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -414,7 +414,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             for d in ds:
                 yield d
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -435,7 +435,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             for d in ds:
                 yield d
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -456,7 +456,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             for d in ds:
                 yield d
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -477,7 +477,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             for d in ds:
                 yield d
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -491,7 +491,7 @@ class IRCAdmin(CommandPluginSuperclass):
         if duration:
             try:
                 duration = parse_time(duration)
-            except ValueError, e:
+            except ValueError as e:
                 event.reply(str(e))
                 return
         
@@ -506,7 +506,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         try:
             yield self._do_moderequest(channel, 'q', hostmask, duration)
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -544,7 +544,7 @@ class IRCAdmin(CommandPluginSuperclass):
         if duration:
             try:
                 duration = parse_time(duration)
-            except ValueError, e:
+            except ValueError as e:
                 event.reply(str(e))
                 return
 
@@ -593,7 +593,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             yield ban_d
             yield kick_d
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     def _do_moderequest(self, channel, mode, hostmask, duration):
@@ -639,22 +639,22 @@ class IRCAdmin(CommandPluginSuperclass):
         if delay:
             try:
                 delay = parse_time(delay)
-            except ValueError, e:
+            except ValueError as e:
                 event.reply(str(e))
                 return
 
         try:
             hostmask = (yield self._nick_to_hostmask(target))
         except ircutil.NoSuchNick:
-            event.reply(u"There is no user by that nick on the network. "
-                        u"Try specifying a full hostmask. Use “/mode +q” to see the channel quiet list".format(
+            event.reply("There is no user by that nick on the network. "
+                        "Try specifying a full hostmask. Use “/mode +q” to see the channel quiet list".format(
                         target,
                         ))
             return
 
         try:
             yield self._do_modederequest(channel, 'q', hostmask, delay)
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
         if delay:
             event.reply("It shall be done.")
@@ -670,22 +670,22 @@ class IRCAdmin(CommandPluginSuperclass):
         if delay:
             try:
                 delay = parse_time(delay)
-            except ValueError, e:
+            except ValueError as e:
                 event.reply(str(e))
                 return
 
         try:
             hostmask = (yield self._nick_to_hostmask(target))
         except ircutil.NoSuchNick:
-            event.reply(u"There is no user by that nick on the network. "
-                        u"Try specifying a full hostmask. Use “/mode +b” to see the channel ban list".format(
+            event.reply("There is no user by that nick on the network. "
+                        "Try specifying a full hostmask. Use “/mode +b” to see the channel ban list".format(
                         target,
                         ))
             return
 
         try:
             yield self._do_modederequest(channel, 'b', hostmask, delay)
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
         if delay:
             event.reply("It shall be done.")
@@ -712,7 +712,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         try:
             yield self.transport.issue_request("ircop.become_op", channel, seconds)
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
     @require_channel
@@ -727,7 +727,7 @@ class IRCAdmin(CommandPluginSuperclass):
         if timespec:
             try:
                 time_to_wait = parse_time(timespec)
-            except ValueError, e:
+            except ValueError as e:
                 event.reply(e)
 
             if timespec.startswith("in") or timespec.startswith("at"):
@@ -740,7 +740,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         try:
             yield self.transport.issue_request("ircop.mode", channel, mode, param)
-        except (ircop.OpFailed, ValueError), e:
+        except (ircop.OpFailed, ValueError) as e:
             event.reply(str(e))
             return
 
@@ -766,7 +766,7 @@ class IRCAdmin(CommandPluginSuperclass):
         try:
             yield req1
             yield req2
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             event.reply(str(e))
 
 class IRCTopic(CommandPluginSuperclass):
@@ -998,5 +998,5 @@ class IRCTopic(CommandPluginSuperclass):
     def _set_topic(self, channel, topic, reply):
         try:
             self.transport.issue_request("ircop.topic", channel, topic)
-        except ircop.OpFailed, e:
+        except ircop.OpFailed as e:
             reply("Channel is +t and I can't acquire op! Reason: {0}".format(e))

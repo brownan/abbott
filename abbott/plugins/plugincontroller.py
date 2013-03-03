@@ -100,7 +100,7 @@ class PluginController(CommandPluginSuperclass):
         # modules loaded back up. That should do it, ya think? I think it
         # should. Solid.
 
-        plugins = [x for x in self.pluginboss.loaded_plugins.keys() if x.startswith(module_name+".")]
+        plugins = [x for x in list(self.pluginboss.loaded_plugins.keys()) if x.startswith(module_name+".")]
         log.msg("Request to reload module %s. Unloading these plugins: %s" % (
             module_name,
             ", ".join(plugins),
@@ -166,7 +166,7 @@ class PluginController(CommandPluginSuperclass):
         event.reply("Plugin %s removed from startup list" % plugin_name)
 
     def list_plugins(self, event, match):
-        plugins = self.pluginboss.loaded_plugins.keys()
+        plugins = list(self.pluginboss.loaded_plugins.keys())
 
         plugins.sort()
         event.reply("Plugins currently running: %s" % ", ".join(plugins))

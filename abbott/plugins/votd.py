@@ -1,5 +1,5 @@
 # encoding: UTF-8
-from __future__ import division
+
 import random
 from collections import defaultdict, deque
 import datetime
@@ -12,7 +12,7 @@ from twisted.python import log
 try:
     from pretty import date as prettydate
 except ImportError:
-    print "Please install the pypi package 'py-pretty'"
+    print("Please install the pypi package 'py-pretty'")
     raise
 
 from ..command import CommandPluginSuperclass, require_channel
@@ -206,13 +206,13 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             # to calculate the odds themselves
             total = 0
             self.config['chance'] = {}
-            for name, count in self.config['counter'].iteritems():
+            for name, count in self.config['counter'].items():
                 ecount = count * self.config['multipliers'][name] * self.config['scalefactor']
                 ecount = int(ecount)
                 self.config['chance'][name] = ecount
                 total += ecount
             if total:
-                for name, ecount in self.config['chance'].items():
+                for name, ecount in list(self.config['chance'].items()):
                     self.config['chance'][name] = ecount / total
             old_save()
         self.config.save = add_probs_and_save
@@ -242,7 +242,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         self.config["channel"] = channel
         self.config.save()
         self._set_timer()
-        event.reply(u"Done. Next scheduled drawing is {0}".format(
+        event.reply("Done. Next scheduled drawing is {0}".format(
             td_to_str(
                 find_time_until(self.config['hour'])
             )))
@@ -253,23 +253,23 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         self.config["channel"] = None
         self.config.save()
         self._set_timer()
-        event.reply(u"Voice of the Day disabled for {0}".format(channel))
+        event.reply("Voice of the Day disabled for {0}".format(channel))
 
     @require_channel
     def settime(self, event, match):
         hour = int(match.groupdict()['hour'])
         minute = int(match.groupdict().get('minute', None) or 0)
         if hour < 0 or hour > 23:
-            event.reply(u"What kind of hour is that?")
+            event.reply("What kind of hour is that?")
             return
         if minute < 0 or minute > 59:
-            event.reply(u"What kind of minute is that?")
+            event.reply("What kind of minute is that?")
             return
         self.config['hour'] = (hour, minute)
         self.config.save()
         self._set_timer()
 
-        event.reply(u"VOTD drawing {3} happen at {0}:{1}, which is {2}".format(
+        event.reply("VOTD drawing {3} happen at {0}:{1}, which is {2}".format(
             hour, minute,
             td_to_str(find_time_until((hour,minute))),
             "will" if self.config['channel'] else "would",
@@ -312,8 +312,8 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         try:
             # Enough time to say everything we need to say
             yield self.transport.issue_request("ircop.become_op", channel, 20)
-        except ircop.OpFailed, e:
-            say(u"I was going to do Voice of the Day, but there was an error. someone halp plz!")
+        except ircop.OpFailed as e:
+            say("I was going to do Voice of the Day, but there was an error. someone halp plz!")
             log.msg("Error while un-voicing previous voice. Bailing. "  + str(e))
             return
 
@@ -339,7 +339,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         # Halve the counter for everyone for next time. If an entry goes to 0,
         # remove it
-        for i, c in self.config['counter'].items():
+        for i, c in list(self.config['counter'].items()):
             if c <= 1:
                 del self.config['counter'][i]
             else:
@@ -347,11 +347,11 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         # Prune out the multipliers dict. Users that don't have an entry in the
         # counter dict are removed
-        for user in self.config['multipliers'].keys():
+        for user in list(self.config['multipliers'].keys()):
             if user not in self.config['counter']:
                 del self.config['multipliers'][user]
         # And the win_counter dict, but only if the value is 0
-        for user, count in self.config["win_counter"].items():
+        for user, count in list(self.config["win_counter"].items()):
             if user not in self.config["counter"] and count == 0:
                 del self.config["win_counter"][user]
 
@@ -360,7 +360,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         names = set(
                 x for x in names if not (x.startswith("@") or x.startswith("+"))
                 )
-        for contestant in counter.keys():
+        for contestant in list(counter.keys()):
             if contestant not in names:
                 del counter[contestant]
 
@@ -370,30 +370,30 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
                                 self.config['multipliers'][user] *
                                 self.config['scalefactor']
                               )
-                    ) for user in counter.iterkeys()
+                    ) for user in counter.keys()
                 )
 
         try:
-            winner = weighted_random_choice(counter.iterkeys(),
+            winner = weighted_random_choice(iter(counter.keys()),
                     effective_entries.get
                     )
         except ValueError:
-            say(u"I was going to do the voice of the day, but nobody seems to be eligible =(")
+            say("I was going to do the voice of the day, but nobody seems to be eligible =(")
             self.config.save()
             return
 
         # The following are not used in calculations but for informational
         # purposes and in the response messages
-        total_entries = sum(effective_entries.itervalues())
+        total_entries = sum(effective_entries.values())
         chances = dict(
                 (user, eentry/total_entries*100)
-                for user, eentry in effective_entries.iteritems()
+                for user, eentry in effective_entries.items()
                 )
         winner_chance = chances[winner]
 
 
         # Adjust all the multipliers up, except for the winner
-        for user, m in self.config['multipliers'].items():
+        for user, m in list(self.config['multipliers'].items()):
             # (except the winner)
             if user != winner:
                 self.config['multipliers'][user] = min(1.0, m*1.5)
@@ -402,49 +402,49 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         self.config.save()
 
-        say(u"Ready everyone? It’s time to choose a new Voice of the Day!")
+        say("Ready everyone? It’s time to choose a new Voice of the Day!")
         yield self.wait_for(timeout=3)
 
         # do this here because we use this value below
         self.config["win_counter"][winner] += 1
 
-        say(u"{phrase} {0:.2f}%{otherphrase}".format(
+        say("{phrase} {0:.2f}%{otherphrase}".format(
                 winner_chance,
                 phrase=
                        (lambda sorted_chance:
                            # Had the most odds with a >xx% lead over the runner up
-                           u"In a landslide win with" if sorted_chance[-1] == winner_chance and winner_chance - sorted_chance[-2] > 5 else
+                           "In a landslide win with" if sorted_chance[-1] == winner_chance and winner_chance - sorted_chance[-2] > 5 else
                            # Had the most odds with a <xx% lead
-                           u"Narrowly beating the competition with" if sorted_chance[-1] == winner_chance else
+                           "Narrowly beating the competition with" if sorted_chance[-1] == winner_chance else
                            # Had the second most odds
-                           u"the underdog in today’s race with" if sorted_chance[-2] == winner_chance else
+                           "the underdog in today’s race with" if sorted_chance[-2] == winner_chance else
                            # Special phrases for low odds
-                           u"with the impossible odds of" if winner_chance<1 else
-                           u"beating the odds with" if winner_chance < 5 else
+                           "with the impossible odds of" if winner_chance<1 else
+                           "beating the odds with" if winner_chance < 5 else
                            # catch all
-                           u"coming in with"
-                           )(sorted(chances.itervalues())),
+                           "coming in with"
+                           )(sorted(chances.values())),
 
                 otherphrase=
                         (lambda win_count, sorted_winners:
-                                u", today’s first-time winner is…" if win_count == 1 else
-                                u" and winning for the second time, today’s hat goes to…" if win_count == 2 else
-                                u", today’s winner and three-time champion of voice is…" if win_count == 3 else
-                                u" and tied for number of all-time wins with {0}, today’s hat goes to…".format(win_count) if win_count == sorted_winners[-1] == sorted_winners[-2] else
-                                u", presenting the winner and reigning champion of voice with {0} all-time wins…".format(win_count) if win_count == sorted_winners[-1] else
-                                u", presenting the winner and runner-up in all-time wins with {0}…".format(win_count) if win_count == sorted_winners[-2] else
-                                u" and {0} total wins, today the hat goes to…".format(win_count)
-                        )(self.config["win_counter"][winner], sorted(self.config["win_counter"].itervalues())),
+                                ", today’s first-time winner is…" if win_count == 1 else
+                                " and winning for the second time, today’s hat goes to…" if win_count == 2 else
+                                ", today’s winner and three-time champion of voice is…" if win_count == 3 else
+                                " and tied for number of all-time wins with {0}, today’s hat goes to…".format(win_count) if win_count == sorted_winners[-1] == sorted_winners[-2] else
+                                ", presenting the winner and reigning champion of voice with {0} all-time wins…".format(win_count) if win_count == sorted_winners[-1] else
+                                ", presenting the winner and runner-up in all-time wins with {0}…".format(win_count) if win_count == sorted_winners[-2] else
+                                " and {0} total wins, today the hat goes to…".format(win_count)
+                        )(self.config["win_counter"][winner], sorted(self.config["win_counter"].values())),
                 ))
         yield self.wait_for(timeout=2)
-        say(u"{0}!".format(winner))
+        say("{0}!".format(winner))
 
         yield self.wait_for(timeout=1)
         yield self.transport.issue_request("ircop.voice", channel, winner)
         self.config['currentvoice'] = winner
         self.config.save()
         yield self.wait_for(timeout=5)
-        extra = self.config.get(u"extra", u"until next time...").split("\n")
+        extra = self.config.get("extra", "until next time...").split("\n")
         for l in extra:
             say(l.format(winner=winner))
             yield self.wait_for(timeout=2)
@@ -456,7 +456,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
     def draw(self, event, match):
         channel = event.channel
         if self.config['channel'] and self.config['channel'] != channel:
-            event.reply(u"I can only do that in {0}".format(self.config['channel']))
+            event.reply("I can only do that in {0}".format(self.config['channel']))
         else:
             if self.timer:
                 self.timer.cancel()
@@ -496,7 +496,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         target = match.groupdict()['nick']
         channel = self.config['channel']
         if channel != event.channel:
-            event.reply(u"I'm not doing votd in this channel. This command only works in " + channel)
+            event.reply("I'm not doing votd in this channel. This command only works in " + channel)
             return
 
         names = (yield self.transport.issue_request("irc.names", channel))
@@ -505,23 +505,23 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         else:
             requestor = event.user.split("!")[0]
             if self.config["currentvoice"] != requestor:
-                event.reply(u"You are not the VOTD. Get out of here, you!")
+                event.reply("You are not the VOTD. Get out of here, you!")
                 return
 
             if "+"+requestor not in names:
-                event.reply(u"Hey, where'd your hat go?")
+                event.reply("Hey, where'd your hat go?")
                 return
 
             if "+"+target in names:
-                event.reply(u"{0} already has voice".format(target))
+                event.reply("{0} already has voice".format(target))
                 return
 
             if "@"+target in names:
-                event.reply(u"no can do")
+                event.reply("no can do")
                 return
         
         if target not in names and "+"+target not in names:
-            event.reply(u"who?")
+            event.reply("who?")
             return
 
         if "+"+requestor in names:
@@ -530,12 +530,12 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         if "+"+target not in names:
             try:
                 yield self.transport.issue_request("ircop.voice", channel=channel, target=target)
-            except ircop.OpFailed, e:
+            except ircop.OpFailed as e:
                 event.reply("Oops, something went wrong and I could not change the channel mode")
                 log.msg(str(e))
                 return
 
-        event.reply(u"Bam!")
+        event.reply("Bam!")
         
         self.config["currentvoice"] = target
         self.config.save()
@@ -553,18 +553,18 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         if not user:
             user = event.user.split("!")[0]
         if user.lower() == event.user.split("!")[0].lower():
-            msg = u"Your chance of winning the next VOTD drawing is"
+            msg = "Your chance of winning the next VOTD drawing is"
             punishment = lambda x: max(0, min(int(x*0.9), x-5))
             self.config["counter"][user] = punishment(self.config["counter"][user])
             self.config.save()
         else:
-            msg = u"{0}’s chance of winning the next VOTD is".format(user)
+            msg = "{0}’s chance of winning the next VOTD is".format(user)
 
         if user not in self.config['counter']:
             return
 
         total = 0
-        for name, count in self.config['counter'].iteritems():
+        for name, count in self.config['counter'].items():
             # compute the effective entry count
             ecount = count * self.config['multipliers'][name] * self.config['scalefactor']
             ecount = int(ecount)
@@ -572,5 +572,5 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         my_ecount = self.config['counter'][user] * self.config['multipliers'][user] * self.config['scalefactor']
         my_chances = int(my_ecount) / total * 100
-        event.reply(u"{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]),
+        event.reply("{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]),
                 **reply_opts)
