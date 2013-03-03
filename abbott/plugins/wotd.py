@@ -1,5 +1,5 @@
 # encoding: UTF-8
-from __future__ import division
+
 import random
 import datetime
 import time
@@ -7,12 +7,6 @@ import string
 
 from twisted.internet import reactor, defer
 from twisted.python import log
-
-try:
-    from pretty import date as prettydate
-except ImportError:
-    print "Please install the pypi package 'py-pretty'"
-    raise
 
 from ..command import CommandPluginSuperclass, require_channel
 from ..pluginbase import EventWatcher, non_reentrant
@@ -35,14 +29,6 @@ def find_time_until(hour_minute):
     timeuntil = targetdt - datetime.datetime.now()
     return timeuntil
 
-def td_to_str(td):
-    """Takes a timedelta and returns a string describing the interval as if it
-    were taking place at a point in the future from now
-
-    """
-    return prettydate(
-            datetime.datetime.now() + td
-            )
 class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
     REQUIRES = ["ircop.OpProvider", "ircutil.Names"]
     DEFAULT_CONFIG = {
@@ -147,7 +133,7 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
     def reset(self, event, match):
         channel = event.channel
         if self.config['channel'] and self.config['channel'] != channel:
-            event.reply(u"I can only do that in {0}".format(self.config['channel']))
+            event.reply("I can only do that in {0}".format(self.config['channel']))
         else:
             if self.timer:
                 self.timer.cancel()
@@ -187,12 +173,12 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
         # Announce what the winning word was.
         if self.config['theword']:
             if current_voices:
-                say(u"Congratulations to our winners. The word of the day was “{0}”".format(self.config['theword']))
+                say("Congratulations to our winners. The word of the day was “{0}”".format(self.config['theword']))
             else:
-                say(u"The word of the day was “{0}”, but nobody guessed it :(. Choosing a new one…".format(self.config['theword']))
+                say("The word of the day was “{0}”, but nobody guessed it :(. Choosing a new one…".format(self.config['theword']))
             self.config['theword'] = None
         else:
-            say(u"Starting the Word of the Day game!")
+            say("Starting the Word of the Day game!")
         yield self.wait_for(timeout=2)
         say("Guess the word of the day and receive a hat! (no spamming)")
 
@@ -261,13 +247,13 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
                     yield self.transport.issue_request("ircop.voice", event.channel, nick)
                     self.transport.send_event(Event("irc.do_notice",
                         user=nick,
-                        message=u"You have guessed the word of the day: “{0}”. Don’t tell anyone, it’s a secret! Enjoy your hat.".format(self.config['theword']),
+                        message="You have guessed the word of the day: “{0}”. Don’t tell anyone, it’s a secret! Enjoy your hat.".format(self.config['theword']),
                         ))
 
                     if len(self.config['winners']) >= self.config['maxwinners']:
                         self.transport.send_event(Event("irc.do_msg",
                             user=event.channel,
-                            message=u"That’s all the hats! Congrats to our winners. Until tomorrow…",
+                            message="That’s all the hats! Congrats to our winners. Until tomorrow…",
                             ))
 
 

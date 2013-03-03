@@ -8,7 +8,7 @@ import sys
 
 def main():
     if len(sys.argv) < 2:
-        print "Usage: %s <config dir>" % sys.argv[0]
+        print("Usage: %s <config dir>" % sys.argv[0])
         sys.exit(1)
     transportobj = transport.Transport()
     boss = pluginbase.PluginBoss(sys.argv[1], transportobj)

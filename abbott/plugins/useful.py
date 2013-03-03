@@ -2,10 +2,9 @@
 import re
 from functools import partial
 import os
-from StringIO import StringIO
+from io import StringIO
 
 from twisted.internet import defer, reactor
-from twisted.internet.utils import getProcessOutput
 from twisted.python import log
 from twisted.internet.protocol import ProcessProtocol
 
@@ -20,7 +19,7 @@ Miscellaneous, useful plugins
 class TempConverter(BotPlugin):
     # A list of keywords that will cause no temperatures to be converted
     blacklist = frozenset(["capacitor", "coulomb", "farad"])
-    c_re = re.compile(ur"""
+    c_re = re.compile(r"""
             # Make sure it's either at the beginning of a word, beginning of the
             # line, or at least not proceeded by an alphanumeric character
             (?: \A | \b | [ ] )
@@ -38,7 +37,7 @@ class TempConverter(BotPlugin):
             (?: elsius|entigrade )? # optionally spelled out
             \b # only capture at word boundaries
             """, re.X)
-    f_re = re.compile(ur"""
+    f_re = re.compile(r"""
             # Make sure it's either at the beginning of a word, beginning of the
             # line, or at least not proceeded by an alphanumeric character
             (?: \A | \b | [ ] )
@@ -73,31 +72,31 @@ class TempConverter(BotPlugin):
             # Convert the given C to F
             replies = []
             for c in c_matches:
-                c = c.replace(u"−",u"-")
+                c = c.replace("−","-")
                 if len(c) > 6:
                     continue
                 c = int(round(float(c)))
                 f = (c * 9 / 5) + 32
                 f = int(round(f))
 
-                replies.append(u"%d °C is %d °F" % (c, f))
+                replies.append("%d °C is %d °F" % (c, f))
 
-            reply(u"(btw: " + u", ".join(replies) + u")")
+            reply("(btw: " + ", ".join(replies) + ")")
 
         elif f_matches and not c_matches:
             # Convert the given F to C
             replies = []
             for f in f_matches:
-                f = f.replace(u"−","-")
+                f = f.replace("−","-")
                 if len(f) > 6:
                     continue
                 f = int(round(float(f)))
                 c = (f - 32) * 5 / 9
                 c = int(round(c))
 
-                replies.append(u"%d °F is %d °C" % (f, c))
+                replies.append("%d °F is %d °C" % (f, c))
 
-            reply(u"(btw: " + u", ".join(replies) + u")")
+            reply("(btw: " + ", ".join(replies) + ")")
 
 class MyProcessProtocol(ProcessProtocol):
     """Runs a command, and calls a callback with output and optionally stderr
@@ -181,9 +180,9 @@ class Units(CommandPluginSuperclass):
             out.write("%s\t%s\n" % (unitname, definition))
 
         if redef:
-            event.reply(u"Unit %s redefined as %s" % (unitname, definition))
+            event.reply("Unit %s redefined as %s" % (unitname, definition))
         else:
-            event.reply(u"Unit %s now defined as %s" % (unitname, definition))
+            event.reply("Unit %s now defined as %s" % (unitname, definition))
 
     @defer.inlineCallbacks
     def invoke_units(self, event, match):
@@ -268,12 +267,12 @@ class Mueval(CommandPluginSuperclass):
         lines = output.split("\n")
         lines = [x.strip() for x in lines]
         lines = [x for x in lines if x]
-        lines = [u"; ".join(lines)]
+        lines = ["; ".join(lines)]
 
         for line in lines:
             maxlen = 200
             if len(line) >= maxlen:
-                line = line[:maxlen-3] + u"…"
+                line = line[:maxlen-3] + "…"
             event.reply(line)
 
 class URLShortener(BotPlugin):
@@ -305,7 +304,11 @@ class URLShortener(BotPlugin):
     def start(self):
         self.listen_for_event("irc.on_privmsg")
 
-        import googl
+        try:
+            import googl
+        except ImportError:
+            print("Please install the python package 'python-googl'")
+            raise
         self.shortener = googl.Googl()
 
     def on_event_irc_on_privmsg(self, event):
@@ -322,7 +325,7 @@ class URLShortener(BotPlugin):
         log.msg("Shortening '%s'" % url)
         shortened = self.shortener.shorten(url)
 
-        event.reply(u"^ %s" % shortened['id'], userprefix=False)
+        event.reply("^ %s" % shortened['id'], userprefix=False)
 
 class Owner(CommandPluginSuperclass):
     """Just a simple plugin to print out the bot's owner. There is no online
@@ -346,11 +349,11 @@ class Owner(CommandPluginSuperclass):
 
     def do_owner(self, event, match):
         if "owner" in self.config:
-            event.reply(u"My owner is " + self.config['owner'])
+            event.reply("My owner is " + self.config['owner'])
         else:
-            event.reply(u"I... I don't know! /me cries")
+            event.reply("I... I don't know! /me cries")
     def do_code(self, event, match):
         if "code" in self.config:
             event.reply(self.config["code"])
         else:
-            event.reply(u"No repository configured. Please ask the owner to set one in the config", direct=True, notice=True)
+            event.reply("No repository configured. Please ask the owner to set one in the config", direct=True, notice=True)

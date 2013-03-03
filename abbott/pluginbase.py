@@ -1,19 +1,18 @@
 # encoding: UTF-8
-from __future__ import print_function
+
 
 import json
-import UserDict
 import os
 import os.path
 import sys
-from collections import defaultdict
+from collections import defaultdict, UserDict
 from functools import wraps
 
 from twisted.internet import defer
 from twisted.internet import reactor
 from twisted.python import log
 
-class PluginConfig(UserDict.UserDict):
+class PluginConfig(UserDict):
     """Installed in plugins as self.config. Provides a dictionary-like
     interface with a method .save() to save to persistent storage. Uses a json
     file as a backing store.
@@ -61,12 +60,12 @@ class PluginBoss(object):
         print("""\
 It seems your config file doesn't exist or is unreadable.
 I'll create a new one for you now""")
-        server = raw_input("First, what irc server do you want to connect to? [irc.freenode.net] >")
+        server = input("First, what irc server do you want to connect to? [irc.freenode.net] >")
         if not server.strip():
             server = "irc.freenode.net"
         prompt = "Uh huh, and what port would you like? SSL please. [7000] >"
         while True:
-            port = raw_input(prompt)
+            port = input(prompt)
             if not port.strip():
                 port = 7000
             try:
@@ -77,19 +76,19 @@ I'll create a new one for you now""")
                 break
 
         while True:
-            admin = raw_input("And who should be the admin of this bot? This should be the nickserv account >")
+            admin = input("And who should be the admin of this bot? This should be the nickserv account >")
             admin = admin.strip()
             if admin:
                 break
 
         while True:
-            nick = raw_input("What should the bot's nickname be? >")
+            nick = input("What should the bot's nickname be? >")
             nick = nick.strip()
             if nick:
                 break
 
         while True:
-            channel = raw_input("Any particular channel I should join to begin with? >")
+            channel = input("Any particular channel I should join to begin with? >")
             channel = channel.strip()
             if channel:
                 break
@@ -245,7 +244,7 @@ class BotPlugin(object):
         """
         self.config = self.pluginboss.get_plugin_config(self.plugin_name)
         save = lambda: None
-        for key, defaultvalue in self.DEFAULT_CONFIG.iteritems():
+        for key, defaultvalue in self.DEFAULT_CONFIG.items():
             if key not in self.config:
                 save = self.config.save
                 self.config[key] = defaultvalue
@@ -512,7 +511,7 @@ def non_reentrant(**keyargs_def):
             # this dictionary, which depends the order being consistent.
             # Dictionary order is guaranteed not to change as long as it
             # doesn't mutate, so this is okay.
-            for kwarg, posarg in keyargs_def.iteritems():
+            for kwarg, posarg in keyargs_def.items():
                 if posarg is not None and len(args) > posarg:
                     key_arguments.append(args[posarg])
                 elif kwarg in kwargs:

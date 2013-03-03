@@ -42,9 +42,9 @@ class PyEval(CommandPluginSuperclass):
                 replyobj = safeeval(evalstr, safe)
             finally:
                 signal.alarm(0)
-        except UnsafeCode, e:
+        except UnsafeCode as e:
             replystr = e.args[0]
-        except Exception, e:
+        except Exception as e:
             replystr = traceback.format_exception_only(type(e),e)[-1].strip()
         else:
             if isinstance(replyobj, str):
@@ -53,22 +53,22 @@ class PyEval(CommandPluginSuperclass):
                     replystr = replyobj.decode("ASCII")
                 except UnicodeDecodeError:
                     replystr = repr(replyobj)
-            elif isinstance(replyobj, unicode):
+            elif isinstance(replyobj, str):
                 replystr = replyobj
             else:
-                replystr = unicode(str(replyobj))
+                replystr = str(str(replyobj))
 
 
         lines = replystr.split("\n")
         lines = [x.strip() for x in lines]
         lines = [x for x in lines if x]
         if len(lines) > 1:
-            lines = [lines[0] + u" …(output truncated)"]
+            lines = [lines[0] + " …(output truncated)"]
 
         for line in lines:
             maxlen = 200
             if len(line) >= maxlen:
-                line = line[:maxlen-3] + u"…"
+                line = line[:maxlen-3] + "…"
             event.reply(line)
 
 ### The rest of this file is the "safe" eval mechanism
@@ -85,7 +85,7 @@ ALLOWED_BUILTINS = {
     'abs': abs,
     'all': all,
     'any': any,
-    'basestring': basestring,
+    'basestring': str,
     'bin': bin,
     'bool': bool,
     'bytearray': bytearray,
@@ -112,7 +112,7 @@ ALLOWED_BUILTINS = {
     'len': len,
     'list': list,
     'locals': locals,
-    'long': long,
+    'long': int,
     'map': map,
     'max': max,
     'min': min,
@@ -134,8 +134,8 @@ ALLOWED_BUILTINS = {
     'sum': sum,
     'tuple': tuple,
     'type': type,
-    'unichr': unichr,
-    'unicode': unicode,
+    'unichr': chr,
+    'unicode': str,
     'vars': vars,
     'xrange': xrange,
     'zip': zip,

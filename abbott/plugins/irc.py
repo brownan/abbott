@@ -45,12 +45,12 @@ class IRCBot(irc.IRCClient):
         This method is also exported to other plugins as the irc.do_raw event.
         
         """
-        if isinstance(line, str):
+        if isinstance(line, bytes):
             line = line.decode("ASCII")
 
         # Do some filtering. Make sure no characters are control characters,
         # except perhaps for some color control characters
-        whitelist = frozenset(u"\x02\x03\x0f\x12\x1f")
+        whitelist = frozenset("\x02\x03\x0f\x12\x1f")
         line = "".join(x for x in line if
                 unicodedata.category(x) != "Cc" or
                 x in whitelist

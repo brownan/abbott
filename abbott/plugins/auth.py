@@ -139,7 +139,7 @@ class Auth(command.CommandPluginSuperclass):
 
         # Compatibility check for a new schema. Use items() since we're going
         # to mutate the dict in the loop
-        for user, permissionlist in self.permissions.items():
+        for user, permissionlist in list(self.permissions.items()):
             if permissionlist and not isinstance(permissionlist[0], list):
                 permissionlist = [[None, x] for x in permissionlist]
                 self.permissions[user] = permissionlist
@@ -199,7 +199,7 @@ class Auth(command.CommandPluginSuperclass):
             nick = hostmask.split("!")[0]
             try:
                 whois_info = (yield self.transport.issue_request("irc.whois", nick))
-            except ircutil.WhoisError, e:
+            except ircutil.WhoisError as e:
                 log.msg("Whois failed: %s" % e)
                 whois_info = {}
 
@@ -371,7 +371,7 @@ class Auth(command.CommandPluginSuperclass):
 
         # If this isn't a direct message, don't show all the other channels
         if event.direct:
-            for perm_chan, perms in perms_map.iteritems():
+            for perm_chan, perms in perms_map.items():
                 event.reply("In channel %s %s: %s" % (
                     perm_chan, msgstr,
                     ", ".join(perms)
@@ -428,7 +428,7 @@ class Auth(command.CommandPluginSuperclass):
         else:
             event.reply("No global permissions")
 
-        for perm_chan, perms in perms_map.iteritems():
+        for perm_chan, perms in perms_map.items():
             event.reply("Default permissions for channel %s: %s" % (
                 perm_chan,
                 ", ".join(perms)))

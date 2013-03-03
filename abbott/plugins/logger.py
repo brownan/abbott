@@ -8,9 +8,9 @@ class Log(BotPlugin):
         self.listen_for_event("*.*")
 
     def received_event(self, event):
-        print
-        print "Received event %s" % (event.eventtype,)
-        print pprint.pformat(event.__dict__)
+        print()
+        print("Received event %s" % (event.eventtype,))
+        print(pprint.pformat(event.__dict__))
 
 class Repr(CommandPluginSuperclass):
     def start(self):

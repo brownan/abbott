@@ -381,7 +381,7 @@ class OpProvider(EventWatcher, BotPlugin):
         # fall right through)
         try:
             yield self._wait_for_op(channel)
-        except OpFailed, e:
+        except OpFailed as e:
             # We need OP but couldn't get it. Send an errback to all items in
             # the mode buffer and event buffer. Send all connector buffer items
             # to their connectors (because we can still do them).

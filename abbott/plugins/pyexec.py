@@ -1,13 +1,12 @@
 # encoding: UTF-8
 import os.path
-from StringIO import StringIO
+from io import StringIO
 import time
 import sys, os, posixpath, errno, stat
 import traceback
 import random
 
 from twisted.internet import defer, reactor, error
-from twisted.internet.utils import getProcessOutput
 from twisted.python import log
 from twisted.internet.protocol import ProcessProtocol
 
@@ -79,11 +78,11 @@ class PyPyTwistedSandboxProtocol(ProcessProtocol, object):
         try:
             fname = sandlib.marshal.load(self.__instream)
             args = sandlib.marshal.load(self.__instream)
-        except EOFError, e:
+        except EOFError as e:
             #log.msg("EOFError unmarshalling args ({0}). Deferring until we get more data".format(e))
             self.__instream.seek(0,2)
             return
-        except Exception, e:
+        except Exception as e:
             log.msg(traceback.format_exc())
             self.abort()
             return
@@ -97,7 +96,7 @@ class PyPyTwistedSandboxProtocol(ProcessProtocol, object):
                 answer, resulttype = (yield retval)
             else:
                 answer, resulttype = retval
-        except Exception, e:
+        except Exception as e:
             #log.msg("Raise exception: {1}, {0}".format(e, e.__class__.__name__))
             tb = sys.exc_info()[2]
             sandlib.write_exception(self.transport, e, tb)
@@ -146,7 +145,7 @@ class PyPyTwistedIOSandboxedProtocol(PyPyTwistedSandboxProtocol):
         super(PyPyTwistedIOSandboxedProtocol, self).__init__(*args, **kwargs)
 
         iv = kwargs.get("inputvalue", "")
-        if isinstance(iv, unicode):
+        if isinstance(iv, str):
             iv = iv.encode("UTF-8")
         self._input = StringIO(iv)
 
@@ -200,7 +199,7 @@ class PyPyTwistedIOSandboxedProtocol(PyPyTwistedSandboxProtocol):
 class PyPyTwistedVirtualizedSandboxedProtocol(PyPyTwistedSandboxProtocol):
     virtual_env = {}
     virtual_cwd = "/tmp"
-    virtual_fd_range = range(3,50)
+    virtual_fd_range = list(range(3,50))
     virtual_console_isatty = False
 
     def __init__(self, *args, **kwargs):
@@ -213,7 +212,7 @@ class PyPyTwistedVirtualizedSandboxedProtocol(PyPyTwistedSandboxProtocol):
         raise NotImplementedError("must be overriden")
 
     def do_ll_os__ll_os_envitems(self):
-        return self.virtual_env.items()
+        return list(self.virtual_env.items())
 
     def do_ll_os__ll_os_getenv(self, name):
         return self.virtual_env.get(name)
@@ -294,7 +293,7 @@ class PyPyTwistedVirtualizedSandboxedProtocol(PyPyTwistedSandboxProtocol):
             return super(PyPyTwistedVirtualizedSandboxedProtocol, self).do_ll_os__ll_os_read(
                 fd, size)
         else:
-            if not (0 <= size <= sys.maxint):
+            if not (0 <= size <= sys.maxsize):
                 raise OSError(errno.EINVAL, "invalid read size")
             # don't try to read more than 256KB at once here
             return f.read(min(size, 256*1024))
@@ -319,7 +318,7 @@ class PyPyTwistedVirtualizedSandboxedProtocol(PyPyTwistedSandboxProtocol):
 
     def do_ll_os__ll_os_listdir(self, vpathname):
         node = self.get_node(vpathname)
-        return node.keys()
+        return list(node.keys())
 
     def do_ll_os__ll_os_getuid(self):
         return UID
@@ -419,11 +418,11 @@ class PyExec(CommandPluginSuperclass):
             event.reply("No output")
             return
         if len(output) > self.config['inputlimit']:
-            output = output[:self.config['inputlimit']] + u"…"
+            output = output[:self.config['inputlimit']] + "…"
 
         lines = output.split("\n")
         for line in lines[:5]:
-            event.reply(u"output: {0}".format(line), userprefix=False)
+            event.reply("output: {0}".format(line), userprefix=False)
         if len(lines) > 5:
-            event.reply(u"output: …", userprefix=False)
+            event.reply("output: …", userprefix=False)
 

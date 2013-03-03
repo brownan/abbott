@@ -17,7 +17,7 @@ class Unicoder(CommandPluginSuperclass):
                 )
 
     def lookup_by_chr(self, event, match):
-        c = match.groupdict()['chr'] or unichr(int(match.groupdict()['uni'],16))
+        c = match.groupdict()['chr'] or chr(int(match.groupdict()['uni'],16))
         self._info_on_char(event.reply, c)
 
     def _info_on_char(self, reply, c):
@@ -29,7 +29,7 @@ class Unicoder(CommandPluginSuperclass):
 
         cat = unicodedata.category(c)
 
-        replytxt = u"U+%04X" % (ord(c),)
+        replytxt = "U+%04X" % (ord(c),)
         if not cat.startswith("C"):
             replytxt += " (%s)" % c
         replytxt += ": %s" % name
