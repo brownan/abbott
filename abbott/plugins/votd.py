@@ -9,12 +9,6 @@ import bisect
 from twisted.internet import reactor, defer
 from twisted.python import log
 
-try:
-    from pretty import date as prettydate
-except ImportError:
-    print("Please install the pypi package 'py-pretty'")
-    raise
-
 from ..command import CommandPluginSuperclass, require_channel
 from ..pluginbase import EventWatcher, non_reentrant
 from ..transport import Event
@@ -36,15 +30,6 @@ def find_time_until(hour_minute):
 
     timeuntil = targetdt - datetime.datetime.now()
     return timeuntil
-
-def td_to_str(td):
-    """Takes a timedelta and returns a string describing the interval as if it
-    were taking place at a point in the future from now
-
-    """
-    return prettydate(
-            datetime.datetime.now() + td
-            )
 
 # http://code.activestate.com/recipes/577363-weighted-random-choice/
 def weighted_random_choice(seq, weight):
@@ -242,10 +227,9 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         self.config["channel"] = channel
         self.config.save()
         self._set_timer()
-        event.reply("Done. Next scheduled drawing is {0}".format(
-            td_to_str(
-                find_time_until(self.config['hour'])
-            )))
+        event.reply("Done. Next scheduled drawing is {0} seconds".format(
+                find_time_until(self.config['hour']).seconds
+            )
 
     @require_channel
     def disable(self, event, match):
@@ -269,9 +253,9 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         self.config.save()
         self._set_timer()
 
-        event.reply("VOTD drawing {3} happen at {0}:{1}, which is {2}".format(
+        event.reply("VOTD drawing {3} happen at {0}:{1}, which is in {2} seconds".format(
             hour, minute,
-            td_to_str(find_time_until((hour,minute))),
+            find_time_until((hour,minute)).seconds,
             "will" if self.config['channel'] else "would",
             ))
 

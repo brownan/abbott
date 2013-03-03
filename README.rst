@@ -32,9 +32,20 @@ Interesting or Notable Features
 Requirements
 ------------
 
-To run the bot you need python 2.7. 2.6 may work but I've probably used some
-features added in 2.7. I haven't really been keeping track. You also need
-Twisted installed. Some plugins also need other external python libraries, too.
+To run the bot you need Python 3.3 or later. You also need Twisted installed.
+Support for Twisted's IRC library may not have made it to release yet, so you
+will need to install the latest Twisted from SVN.
+
+Additionally, the following third party libraries are needed for select
+plugins. You can `pip install` most of these.
+
+* For the icecast plugin, you need the `beautifulsoup4` package.
+
+* Far the admin plugin, you need the `parsedatetime` package. The version in
+  PYPI doesn't support python 3, but the latest in SVN does:
+  http://parsedatetime.googlecode.com/svn/trunk/
+
+* For the useful.URLShortener plugin you need the `python-googl` package.
 
 Launching
 ---------

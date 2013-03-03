@@ -8,12 +8,6 @@ import string
 from twisted.internet import reactor, defer
 from twisted.python import log
 
-try:
-    from pretty import date as prettydate
-except ImportError:
-    print("Please install the pypi package 'py-pretty'")
-    raise
-
 from ..command import CommandPluginSuperclass, require_channel
 from ..pluginbase import EventWatcher, non_reentrant
 from ..transport import Event
@@ -35,14 +29,6 @@ def find_time_until(hour_minute):
     timeuntil = targetdt - datetime.datetime.now()
     return timeuntil
 
-def td_to_str(td):
-    """Takes a timedelta and returns a string describing the interval as if it
-    were taking place at a point in the future from now
-
-    """
-    return prettydate(
-            datetime.datetime.now() + td
-            )
 class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
     REQUIRES = ["ircop.OpProvider", "ircutil.Names"]
     DEFAULT_CONFIG = {
