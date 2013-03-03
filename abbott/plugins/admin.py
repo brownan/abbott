@@ -36,6 +36,8 @@ class IRCAdmin(CommandPluginSuperclass):
     """Provides a command interface to IRC operator tasks. Uses the plugins in
     the ircop module to perform the operations.
 
+    ALSO provides an interface to timed quiets for other plugins.
+
     """
     REQUIRES = ["ircop.OpProvider"]
 
@@ -198,7 +200,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         for timer in self.later_timers.values():
             timer.cancel()
-        
+
     def start(self):
         super(IRCAdmin, self).start()
 
@@ -206,6 +208,8 @@ class IRCAdmin(CommandPluginSuperclass):
         self._set_all_timers()
 
         self.listen_for_event("irc.on_mode_change")
+
+        self.provides_request("ircadmin.timedquiet")
 
         # kick command
         self.install_command(
@@ -768,6 +772,27 @@ class IRCAdmin(CommandPluginSuperclass):
             yield req2
         except ircop.OpFailed as e:
             event.reply(str(e))
+
+    @defer.inlineCallbacks
+    def on_request_ircadmin_timedquiet(self, channel, target, duration):
+        """Puts in a request for a timed quiet. user is interpreted as either a
+        nick or a hostmask. If it is a nick and the user is not on the network,
+        an ircutil.NoSuchNick is raised.
+
+        duration is either an integer, or a string. If it is a string, it is
+        parsed for the time. If no time can be parsed, a ValueError is raised.
+
+        If there was a problem acquiring OP to complete this function, an
+        ircop.OpFailed is raised.
+
+        """
+        if not isinstance(duration, int):
+            duration = parse_time(duration)
+        
+        hostmask = (yield self._nick_to_hostmask(target))
+
+        yield self._do_moderequest(channel, 'q', hostmask, duration)
+        
 
 class IRCTopic(CommandPluginSuperclass):
     """Topic manipulation commands.

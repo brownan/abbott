@@ -339,6 +339,7 @@ class Owner(CommandPluginSuperclass):
                 )
         self.install_command(
                 cmdname="code",
+                cmdmatch="code|source",
                 helptext="Replies with a link to my code. I'm open source!",
                 callback=self.do_code,
                 )
