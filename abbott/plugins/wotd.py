@@ -261,7 +261,7 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
                     yield self.transport.issue_request("ircop.voice", event.channel, nick)
                     self.transport.send_event(Event("irc.do_notice",
                         user=nick,
-                        message=u"You have guessed the word of the day: “{0}”. Don’t tell anyone, it's a secret! Enjoy your hat.".format(self.config['theword']),
+                        message=u"You have guessed the word of the day: “{0}”. Don’t tell anyone, it’s a secret! Enjoy your hat.".format(self.config['theword']),
                         ))
 
                     if len(self.config['winners']) >= self.config['maxwinners']:
