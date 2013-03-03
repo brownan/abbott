@@ -229,7 +229,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         self._set_timer()
         event.reply("Done. Next scheduled drawing is {0} seconds".format(
                 find_time_until(self.config['hour']).seconds
-            )
+            ))
 
     @require_channel
     def disable(self, event, match):

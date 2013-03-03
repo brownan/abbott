@@ -41,6 +41,12 @@ will need to install the latest Twisted from SVN.
     svn checkout svn://svn.twistedmatrix.com/svn/Twisted/trunk /tmp/twisted
     pip install /tmp/twisted/
 
+As of the writing, they have not yet accepted my patch, so you can get a
+version of Twisted that works here::
+
+    git clone git@github.com:brownan/Twisted.git /tmp/twisted
+    pip install /tmp/twisted
+
 Additionally, the following third party libraries are needed for select
 plugins. You can `pip install` most of these.
 
