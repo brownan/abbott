@@ -145,6 +145,7 @@ class Reverse(CommandPluginSuperclass):
         super(Reverse, self).on_event_irc_on_privmsg(event)
 
 class Sneeze(BotPlugin):
+    DEFAULT_CONFIG = {"channels":[]}
 
     def start(self):
         super(Sneeze, self).start()

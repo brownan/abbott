@@ -7,7 +7,6 @@ import traceback
 import random
 
 from twisted.internet import defer, reactor, error
-from twisted.internet.utils import getProcessOutput
 from twisted.python import log
 from twisted.internet.protocol import ProcessProtocol
 

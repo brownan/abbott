@@ -5,7 +5,6 @@ import os
 from io import StringIO
 
 from twisted.internet import defer, reactor
-from twisted.internet.utils import getProcessOutput
 from twisted.python import log
 from twisted.internet.protocol import ProcessProtocol
 
@@ -305,7 +304,11 @@ class URLShortener(BotPlugin):
     def start(self):
         self.listen_for_event("irc.on_privmsg")
 
-        import googl
+        try:
+            import googl
+        except ImportError:
+            print("Please install the python package 'python-googl'")
+            raise
         self.shortener = googl.Googl()
 
     def on_event_irc_on_privmsg(self, event):
