@@ -45,7 +45,7 @@ class IRCBot(irc.IRCClient):
         This method is also exported to other plugins as the irc.do_raw event.
         
         """
-        if isinstance(line, str):
+        if isinstance(line, bytes):
             line = line.decode("ASCII")
 
         # Do some filtering. Make sure no characters are control characters,

@@ -1,4 +1,10 @@
-from twisted.python.reflect import namedModule
+try:
+    # Not all of this module was converted to python 3 at the time this was
+    # written. Eventually, the _reflectpy3 module will disappear when the rest
+    # is ported.
+    from twisted.python._reflectpy3 import namedModule
+except ImportError:
+    from twisted.python.reflect import namedModule
 from twisted.python import log
 
 from ..command import CommandPluginSuperclass
