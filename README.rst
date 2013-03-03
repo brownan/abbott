@@ -36,8 +36,15 @@ To run the bot you need Python 3.3 or later. You also need Twisted installed.
 Support for Twisted's IRC library may not have made it to release yet, so you
 will need to install the latest Twisted from SVN.
 
+::
+
+    svn checkout svn://svn.twistedmatrix.com/svn/Twisted/trunk /tmp/twisted
+    pip install /tmp/twisted/
+
 Additionally, the following third party libraries are needed for select
 plugins. You can `pip install` most of these.
+
+* For the irc plugin, you need the `pyOpenSSL` package.
 
 * For the icecast plugin, you need the `beautifulsoup4` package.
 
