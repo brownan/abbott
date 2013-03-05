@@ -5,7 +5,12 @@ import json
 import os
 import os.path
 import sys
-from collections import defaultdict, UserDict
+from collections import defaultdict
+try:
+    from UserDict import UserDict
+except:
+    # This moved in python 3
+    from collections import UserDict
 from functools import wraps
 
 from twisted.internet import defer

@@ -8,12 +8,16 @@ from twisted.python import log
 from twisted.internet import defer
 
 try:
-    from parsedatetime import Calendar
+    from parsedatetime.parsedatetime import Calendar
 except ImportError:
-    print("The admin plugins need the parsedatetime package. The latest in svn supports Python 3.")
-    print("Checkout the latest from http://parsedatetime.googlecode.com/svn/trunk/")
-    print("Then run a pip install on that directory")
-    raise
+    try:
+        # They changed the package layout at some point
+        from parsedatetime import Calendar
+    except ImportError:
+        print("The admin plugins need the parsedatetime package. The latest in svn supports Python 3.")
+        print("Checkout the latest from http://parsedatetime.googlecode.com/svn/trunk/")
+        print("Then run a pip install on that directory")
+        raise
 
 from ..command import CommandPluginSuperclass, require_channel
 from ..transport import Event
