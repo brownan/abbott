@@ -1,4 +1,5 @@
 # encoding: UTF-8
+from __future__ import unicode_literals
 
 import random
 import datetime
@@ -188,8 +189,6 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
         self.config.save()
 
         self._set_timer()
-
-
 
     @defer.inlineCallbacks
     def on_event_irc_on_privmsg(self, event):

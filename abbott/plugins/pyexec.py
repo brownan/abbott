@@ -1,4 +1,5 @@
 # encoding: UTF-8
+from __future__ import unicode_literals
 import os.path
 from io import StringIO
 import time
