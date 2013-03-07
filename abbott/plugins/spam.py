@@ -1,6 +1,7 @@
 # encoding: UTF-8
+from __future__ import unicode_literals
 
-from collections import deque
+from collections import deque, defaultdict
 import time
 
 from twisted.python import log
@@ -10,22 +11,41 @@ from ..command import CommandPluginSuperclass, require_channel
 from . import ircop
 
 class Spam(CommandPluginSuperclass):
-    """A plugin that watches the configured channels for spammers. A spammer is
-    defined as a user that says more than X lines in Y seconds, where X and Y
-    are parameters tunable on a per-channel basis.
+    """A plugin that watches the configured channel for spammers/flooders.
+    Tuned for the kinds of spam we see in #minecraft, this plugin looks for
+    webchat users who, as their first two lines, say the same line within 2
+    seconds.
+
+    If line is less than 15 characters long, the number of lines said increases
+    by 1 before they're quieted.
+
+    If the user is not a webchat user, or the webchat user has said some other
+    lines first, the number of lines said increases by 1 before they're
+    quieted.
+
+    So a webchat user may be quieted after just two lines if they are repeats
+    and are the first things he/she says.
+
+    This is a single-channel plugin.
 
     """
     REQUIRES = ["admin.IRCAdmin"]
 
-    # Channel maps channel names to (X,Y) tuples
     DEFAULT_CONFIG = {
-            "channel": dict(),
-            "msg": dict(),
-            "duration": dict(),
+            "channel": None,
+            "msg": "No flooding is allowed",
+            "duration": 30,
             }
+
+    def reload(self):
+        super(Spam, self).reload()
 
     def start(self):
         super(Spam, self).start()
+
+        # This holds the last few lines said in the channel. Specifically, each
+        # element is a tuple: (hostmask, timestamp, message)
+        self.lastlines = deque(maxlen=4)
 
         permgroup = self.install_cmdgroup(
                 grpname="spam",
@@ -35,15 +55,13 @@ class Spam(CommandPluginSuperclass):
 
         permgroup.install_command(
                 cmdname="on",
-                cmdusage="<X lines> <Y seconds>",
-                argmatch = r"(?P<X>\d+) (?P<Y>\d+)$",
-                callback=self.spamcfg,
-                helptext="Enables the spam plugin on this channel, configured to detect when a user says X lines in Y seconds",
+                callback=self.spamon,
+                helptext="Enables the spam plugin on this channel",
                 )
         permgroup.install_command(
                 cmdname="off",
-                callback=self.spamcfg,
-                helptext="Enables the spam plugin on this channel, configured to detect when a user says X lines in Y seconds",
+                callback=self.spamoff,
+                helptext="Enables the spam plugin on this channel",
                 )
 
         permgroup.install_command(
@@ -60,92 +78,105 @@ class Spam(CommandPluginSuperclass):
                 callback=self.setduration,
                 helptext="Sets the duration of the quiet when a user spams on this channel",
                 )
-
-        # This maps nicknames to a deque of length X full of the last X
-        # timestamps
-        self.timestamps = {}
     
     @require_channel
-    def spamcfg(self, event, match):
-        # not sure why I decided to implement the enable and disable functions
-        # as one function. I'm too lazy to split them at this point though.
+    def spamon(self, event, match):
         channel = event.channel
-        gd = match.groupdict()
-        X = gd.get("X", None)
-        Y = gd.get("Y", None)
+        if self.config['channel'] == channel:
+            event.reply("Spam detection is already on for {0}".format(channel))
+        else:
+            self.config['channel'] = channel
+            self.config.save()
+            event.reply("Spam detection is now on for {0}".format(channel))
 
-        if not X:
-            # disable
-            try:
-                del self.config['channel'][channel]
-            except KeyError:
-                event.reply("Spam detection is already off in {0}!".format(channel))
-            else:
-                event.reply("Spam detection is now off in {0}.".format(channel))
-                self.config.save()
-            return
-        
-        self.config['channel'][channel] = (int(X),int(Y)) 
+    @require_channel
+    def spamoff(self, event, match):
+        channel = event.channel
+        self.config['channel'] = None
+        event.reply("Spam detection is now off in {0}.".format(channel))
         self.config.save()
-        event.reply("Spam detection is on. Users will be quieted when they say {0} lines in {1} seconds".format(X,Y))
-
-    
+        
     @defer.inlineCallbacks
     def on_event_irc_on_privmsg(self, event):
         super(Spam, self).on_event_irc_on_privmsg(event)
         channel = event.channel
-        nick = event.user.split("!")[0]
-        try:
-            channelcfg = self.config["channel"][channel]
-        except KeyError:
+        hostmask = event.user
+        nick = hostmask.split("!")[0]
+
+        if self.config['channel'] != channel:
             return
 
-        X, Y = channelcfg
-
-        timestamps = self.timestamps.get(nick, None)
-
-        if not timestamps or timestamps.maxlen != X:
-            timestamps = deque(maxlen=X)
-            self.timestamps[nick] = timestamps
-
+        # Now go and log this line in the rotating buffer of last lines for the
+        # channel.
         now = time.time()
+        self.lastlines.append((hostmask, now, event.message))
 
-        timestamps.append(now)
+        # Count how many lines the current user has said in the last 2 seconds.
+        # This will always be at least 1
+        linessaid = sum(1 for t in self.lastlines if
+                t[0] == hostmask and t[1] + 2 > now
+                ) 
 
-        if len(timestamps) == X and timestamps[0] + Y > now:
+        # count how many lines said match the current line (not including the
+        # current line). This will always be at least 1
+        repeats = sum(1 for t in self.lastlines if
+                t[0] == hostmask and t[1] + 2 > now and
+                t[2] == event.message
+                )
 
-            # Positive spammer
+        is_webchat = event.user.split("@")[-1].startswith("gateway/web/")
+        #shortline = len(event.message) <= 15
+        reallylong = len(event.message) > 300
+
+        #log.msg("User {nick} {0} webchat. Said {1} lines. {2} of them repeats.".format(
+        #    ["is not", "is"][is_webchat], linessaid, repeats, nick=nick))
+
+        # Set a base threshold
+        if reallylong:
+            threshold = 1
+        elif is_webchat:
+            threshold = 3
+        else:
+            threshold = 4
+        
+        # Modifiers, punish repeat lines more
+        if repeats >= 1:
+            threshold -= repeats - 1
+
+        if linessaid >= threshold:
+            flood = True
+            log.msg("User {0} said {1} lines, over the threshold of {2}. {3} repeated lines.".format(
+                nick, linessaid, threshold, repeats))
+        else:
+            flood = False
+
+        if flood:
             mask = "*!*@{0}".format(event.user.split("@")[-1])
             try:
                 yield self.transport.issue_request("ircadmin.timedquiet",
-                        channel, mask, self.config['duration'].get(channel,
-                            60*5))
+                        channel, mask, self.config['duration'])
             except (ircop.OpFailed, ValueError) as e:
-                log.msg("Was going to quiet user {0} for spamming but I got an error: {1}".format(nick, e))
+                log.msg("Was going to quiet user {0} for flooding but I got an error: {1}".format(nick, e))
 
             # If they manage to get another few lines in before they're quited,
-            # don't try and quiet them again right away.
-            timestamps.clear()
+            # don't try and quiet them again right away. Do this by clearing
+            # the last lines.
+            self.lastlines.clear()
 
-            msglines = self.config['msg'].get(channel, "Spamming is not allowed on this channel!")
+            msglines = self.config['msg']
             for l in msglines.split("\\n"):
                 event.reply(l, direct=True, notice=True)
 
-            #event.reply("Spamming is not allowed on this channel. Please be respectful of the channel rules.", direct=True, notice=True)
-            #event.reply("If you have a lot of text to share, use a pastebin such as http://pastie.org/", direct=True, notice=True)
-
     @require_channel
     def setmsg(self, event, match):
-        channel = event.channel
         msg = match.groupdict()['msg']
-        self.config['msg'][channel] = msg
+        self.config['msg'] = msg
         self.config.save()
         event.reply("Message set. Go ahead, try it out! ;)")
 
     @require_channel
     def setduration(self, event, match):
-        channel = event.channel
         duration = int(match.groupdict()['duration'])
-        self.config['duration'][channel] = duration
+        self.config['duration'] = duration
         self.config.save()
         event.reply("Quiet duration set to {0} seconds".format(duration))
