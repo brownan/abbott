@@ -139,9 +139,9 @@ class Spam(CommandPluginSuperclass):
         else:
             threshold = 4
         
-        # Modifiers, punish repeat lines more
-        if repeats >= 1:
-            threshold -= repeats - 1
+        # Punish repeat lines more. (repeats is always at least 1, so this has
+        # no effect unless there were 2 identical lines)
+        threshold -= repeats - 1
 
         if linessaid >= threshold:
             log.msg("User {0} said {1} lines, over the threshold of {2}. {3} repeated lines.".format(
