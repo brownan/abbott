@@ -1,7 +1,7 @@
 # encoding: UTF-8
 from __future__ import unicode_literals
 
-from collections import deque, defaultdict
+from collections import deque
 import time
 
 from twisted.python import log
