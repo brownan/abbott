@@ -144,13 +144,8 @@ class Spam(CommandPluginSuperclass):
             threshold -= repeats - 1
 
         if linessaid >= threshold:
-            flood = True
             log.msg("User {0} said {1} lines, over the threshold of {2}. {3} repeated lines.".format(
                 nick, linessaid, threshold, repeats))
-        else:
-            flood = False
-
-        if flood:
             mask = "*!*@{0}".format(event.user.split("@")[-1])
             try:
                 yield self.transport.issue_request("ircadmin.timedquiet",
