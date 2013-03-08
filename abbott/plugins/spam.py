@@ -126,15 +126,12 @@ class Spam(CommandPluginSuperclass):
 
         is_webchat = event.user.split("@")[-1].startswith("gateway/web/")
         #shortline = len(event.message) <= 15
-        reallylong = len(event.message) > 300
 
         #log.msg("User {nick} {0} webchat. Said {1} lines. {2} of them repeats.".format(
         #    ["is not", "is"][is_webchat], linessaid, repeats, nick=nick))
 
         # Set a base threshold
-        if reallylong:
-            threshold = 1
-        elif is_webchat:
+        if is_webchat:
             threshold = 3
         else:
             threshold = 4
