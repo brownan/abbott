@@ -1,14 +1,52 @@
+# encoding: UTF-8
 from collections import defaultdict
 import functools
-import re
 from itertools import chain
 
 from twisted.python import log
 from twisted.internet import defer, reactor
 
 from .. import command
-from ..transport import Event
 from . import ircutil
+
+"""
+
+The auth module provides the Auth plugin, which handles authorization of irc
+users. It identifies irc users by the response code 330 from a whois, commonly
+used to supply the username the user is logged in with.
+
+The plugin hooks incoming irc events and adds a function to the event object:
+has_permission(). This function takes two parameters: a permission string, and
+a channel, and returns a deferred which fires with a boolean value indicating
+if the user that initiated the event has that permission in that channel or
+not. (if channel is irrelevant for the permission, it should be None,
+indicating a global permission)
+
+Permission strings are heirarchical strings delimited by dots. If a user has a
+permission, they also have all sub-permissions of that permission. For example,
+if a user has permission "foo.bar", these calls return true:
+    has_permission("foo.bar")
+    has_permission("foo.bar.baz")
+
+Groups are also implemented and are fairly simple. Group names start with a %,
+and groups are assigned permissions just the same as users.  Users are then
+assigned to groups, and the users inherit all the permissions of that group, as
+well as their individually assigned permissions. Pretty standard.
+
+For example, a group has permission irc.op, then all users of that group are
+granted irc.op. Groups are assigned permissions, and users are assigned
+membership in a group.
+
+Groups do not cascade. You cannot assign a group to another group.
+
+Permission commands fall under the !permission command. Group commands are
+under the !group command. Most permission manipulation commands require the
+permission auth.edit.  The group manipulation commands are different. They
+require the auth.edit.group.<groupname> permission (which is auto granted if
+you have auth.edit). This is so you can grant permission to edit a specific
+group, while not requiring having access to edit all groups or all permissions.
+
+"""
 
 def satisfies(user_perm, auth_perm):
     """Does the user permission satisfy the required auth_perm?
@@ -20,8 +58,9 @@ def satisfies(user_perm, auth_perm):
     Permission strings are hierarchical. Granting admin will grant admin,
     admin.op1, admin.op2, etc.
 
-    Globs are supported, and do not transcend dots. Granting admin.*.foo will
-    allow admin.bar.foo and admin.baz.foo, but not admin.bar.baz.foo
+    Simple globs are supported, and do not transcend dots.  Granting
+    admin.*.foo will allow admin.bar.foo and admin.baz.foo, but not
+    admin.bar.baz.foo
 
     Globs at the end of permissions match as expected from the above rules.
     Granting admin.* will allow admin.foo, admin.bar, admin.foo.baz, etc. (but
@@ -29,26 +68,30 @@ def satisfies(user_perm, auth_perm):
 
     The super-user's permission is simply *
 
-    """
-    # Expand the *s to [^.]* and re.escape everything else
-    user_perm = "[^.]*".join(
-            re.escape(x) for x in user_perm.split("*")
-            )
-    # The match should conclude with ($|\.) to indicate it must
-    # either match exactly or any sub-permission
-    # for example, the permission
-    #   irc.op
-    # should match
-    #   irc.op
-    #   irc.op.kick
-    #   irc.op.etc
-    # but it should NOT match something like
-    #   irc.open
-    user_perm += r"($|\.)"
+    Partial globbing is not allowed. Only entire permission elements may be
+    globs. "admin.foo*bar" is not allowed. Instead, split it up to
+    "admin.foo.*.bar"
 
-    if re.match(user_perm, auth_perm):
-        return True
-    return False
+    """
+    user_parts = user_perm.split(".")
+    auth_parts = auth_perm.split(".")
+
+    if len(user_parts) > len(auth_parts):
+        # The auth required is more general than the user permission. There's
+        # no way for this to be satisfied.
+        return False
+
+    # Check all the corresponding elements match.
+    for userelem, authelem in zip(user_parts, auth_parts):
+        if userelem == "*" or authelem == "*":
+            continue
+
+        if userelem != authelem:
+            return False
+
+    # There may be more elements of auth_parts, but that's okay. It just means
+    # the user has a more general (more powerful) permission than is required.
+    return True
 
 class Auth(command.CommandPluginSuperclass):
     """Auth plugin.
@@ -58,6 +101,16 @@ class Auth(command.CommandPluginSuperclass):
     to query if a user has a particular permission.
     
     """
+    REQUIRES = ["ircutil.IRCWhois"]
+    DEFAULT_CONFIG = {
+            # Maps authnames to a list of (channel, perm string) tuples
+            "perms": {},
+            # A list of (channel, perm string) tuples
+            "defaultperms": [],
+            # Maps authnames to a list of groups they're in
+            "groups": {},
+            }
+
     def start(self):
         super(Auth, self).start()
 
@@ -70,34 +123,34 @@ class Auth(command.CommandPluginSuperclass):
 
         permgroup = self.install_cmdgroup(
                 grpname="permission",
-                permission="auth.edit_permissions",
+                permission="auth.edit",
                 helptext="Permission manipulation commands",
                 )
 
         permgroup.install_command(
                 cmdname="grant",
                 cmdmatch="add|grant",
-                argmatch=r"(?P<name>\w+) (?P<perm>[^ ]+)(?: (?P<channel>[^ ]+))?$",
+                argmatch=r"(?P<name>%?\w+) (?P<perm>[^ ]+)(?: (?P<channel>[^ ]+))?$",
                 callback=self.permission_add,
-                cmdusage="<authname> <permission> [channel]",
-                helptext="Grants a user the specified permission, either globally or in the specified channel",
+                cmdusage="<authname | %groupname> <permission> [channel]",
+                helptext="Grants a user the specified permission, either globally or in the specified channel. If authname starts with an %, it indicates a group",
                 )
 
         permgroup.install_command(
                 cmdname="revoke",
                 cmdmatch="revoke|remove",
-                argmatch=r"(?P<name>\w+) (?P<perm>[^ ]+)(?: (?P<channel>[^ ]+))?$",
+                argmatch=r"(?P<name>%?\w+) (?P<perm>[^ ]+)(?: (?P<channel>[^ ]+))?$",
                 callback=self.permission_revoke,
-                cmdusage="<authname> <permission> [channel]",
-                helptext="Revokes the specified permission from the user, either globally or in the specifed channel",
+                cmdusage="<authname | %groupname> <permission> [channel]",
+                helptext="Revokes the specified permission from the user, either globally or in the specifed channel. If authname starts with an %, it indicates a group",
                 )
 
         permgroup.install_command(
                 cmdname="list",
-                argmatch=r"(?P<name>[\w.]+)?$",
+                argmatch=r"(?P<name>%?[\w.]+)?$",
                 callback=self.permission_list,
-                cmdusage="[authname]",
-                helptext="Lists the permissions granted to the given or current user",
+                cmdusage="[authname | %groupname]",
+                helptext="Lists the permissions granted to the given or current user. If authname starts with an %, it indicates a group",
                 )
 
         permgroup.install_command(
@@ -121,6 +174,38 @@ class Auth(command.CommandPluginSuperclass):
                 helptext="Lists the default permissions",
                 )
 
+        ### Install group commands
+
+        groupgroup = self.install_cmdgroup(
+                grpname="group",
+                permission="auth.edit.group.*",
+                helptext="Authentication group manipulation commands",
+                )
+
+        groupgroup.install_command(
+                cmdname="add",
+                argmatch=r"(?P<user>[^ ]+) (?P<group>%\w+)$",
+                callback=self.group_add,
+                cmdusage="<user> <%group>",
+                helptext="Adds a user to the named group. Group names start with a %",
+                )
+
+        groupgroup.install_command(
+                cmdname="remove",
+                argmatch=r"(?P<user>[^ ]+) (?P<group>%\w+)$",
+                callback=self.group_remove,
+                cmdusage="<user> <%group>",
+                helptext="Removes a user from the named group. Group names start with a %",
+                )
+
+        groupgroup.install_command(
+                cmdname="list",
+                argmatch=r"(?P<group>%\w+)?$",
+                callback=self.group_list,
+                cmdusage="[%group]",
+                helptext="Lists the members of the specified group, or list all the groups. Group names start with a %",
+                )
+
         # Top level command
         self.install_command(
                 cmdname="whoami",
@@ -128,28 +213,6 @@ class Auth(command.CommandPluginSuperclass):
                 callback=self.permission_list,
                 helptext="Tells you who you're auth'd as and lists your permissions.",
                 )
-
-        # Put a few default items in the config if they don't exist
-        if "perms" not in self.config:
-            self.config['perms'] = {}
-            self.config.save()
-        if "defaultperms" not in self.config:
-            self.config['defaultperms'] = []
-            self.config.save()
-
-        # Compatibility check for a new schema. Use items() since we're going
-        # to mutate the dict in the loop
-        for user, permissionlist in list(self.permissions.items()):
-            if permissionlist and not isinstance(permissionlist[0], list):
-                permissionlist = [[None, x] for x in permissionlist]
-                self.permissions[user] = permissionlist
-                self._save()
-
-        for perm in list(self.config['defaultperms']):
-            if not isinstance(perm, list):
-                self.config['defaultperms'].remove(perm)
-                self.config['defaultperms'].append([None, perm])
-                self._save()
 
     def received_middleware_event(self, event):
         """For events that are applicable, install a handler one can call to
@@ -178,11 +241,11 @@ class Auth(command.CommandPluginSuperclass):
         """This function returns the permissions granted to the given user,
         identifying them in the process by doing a whois lookup if necessary.
 
-        It returns a deferred object. The parameter to the deferred callback is
-        a list of (channel, permissionstr) the user has, or an empty list of the
+        It returns a deferred object which fires with an iterable over
+        (channel, permissionstr) tuples the user has, or an empty list of the
         user does not have any permissions or the user could not be identified.
         It does NOT include any default permissions, only permissions
-        explicitly granted to the user.
+        explicitly granted to the user (along with any groups the user is in).
         
         This method may send a whois to the server, in which case it looks for
         an IRC 330 command back from the server indicating the user's authname
@@ -215,9 +278,17 @@ class Auth(command.CommandPluginSuperclass):
             else:
                 authname = self.authd_users[hostmask] = whois_info["330"][1]
 
-        # authname could be none, indicating a recent whois for that
-        # hostmask didn't return any auth info
-        perms = self.permissions[authname] if authname else []
+        # if authname is none at this point, it indicates the whois didn't
+        # return any auth info. Remember this method does not account for
+        # default permissions, so just return an empty set
+        perms = set()
+        if authname:
+            perms.update(tuple(x) for x in self.permissions[authname])
+
+            # Now dereference perms from any groups the user is in
+            for group in self.config['groups'].get(authname, []):
+                perms.update(tuple(x) for x in self.permissions[group])
+
         defer.returnValue(perms)
 
     @defer.inlineCallbacks
@@ -288,16 +359,14 @@ class Auth(command.CommandPluginSuperclass):
 
         defer.returnValue(channels)
 
-    def _save(self):
-        # Make a copy... don't store the defaultdict (probably wouldn't matter though)
-        self.config['perms'] = dict(self.permissions)
-        self.config.save()
-
     ### Reload event
     def reload(self):
         super(Auth, self).reload()
-        self.permissions = defaultdict(list)
-        self.permissions.update(self.config.get('perms', {}))
+        self.config['perms'] = defaultdict(list, self.config['perms'])
+        self.permissions = self.config['perms']
+
+        # Also turn groups into a defaultdict
+        self.config['groups'] = defaultdict(list, self.config['groups'])
 
     ### The command plugin callbacks, installed above
 
@@ -306,15 +375,23 @@ class Auth(command.CommandPluginSuperclass):
         name = groupdict['name']
         perm = groupdict['perm']
         channel = groupdict.get("channel", None)
-        # It should really be a tuple, but tuples are inserted as lists by json
+
+        # This must be a list, even though a tuple is more appropriate, because
+        # they come back from json as a list. If it's changed to a tuple, you
+        # must convert them on reload and also change the .remove() method in
+        # permission_revoke()
         self.permissions[name].append([channel, perm])
-        self._save()
+        self.config.save()
+
         if channel:
-            event.reply("Permission %s granted for user %s in channel %s" % (
+            event.reply("Permission {0} granted for {usergroup} {1} in channel {2}".format(
                 perm, name, channel,
+                usergroup = "group" if name.startswith("%") else "user",
                 ))
         else:
-            event.reply("Permission %s granted globally for user %s" % (perm, name))
+            event.reply("Permission {0} granted globally for {usergroup} {1}".format(perm, name,
+                usergroup = "group" if name.startswith("%") else "user",
+                ))
 
     def permission_revoke(self, event, match):
         groupdict = match.groupdict()
@@ -327,37 +404,53 @@ class Auth(command.CommandPluginSuperclass):
             # keyerror if the user doesn't have any, valueerror if the user has
             # some but not this one
             if channel:
-                event.reply("User %s doesn't have permission %s in channel %s!" % (
+                event.reply("{usergroup} {0} doesn't have permission {1} in channel {2}!".format(
                     name, perm, channel,
+                    usergroup = "Group" if name.startswith("%") else "User",
                     ))
             else:
-                event.reply("User %s doesn't have the global permission %s!" % (
+                event.reply("{usergroup} {0} doesn't have the global permission {1}!".format(
                     name, perm,
+                    usergroup = "Group" if name.startswith("%") else "User",
                     ))
         else:
-            self._save()
+            self.config.save()
             if channel:
-                event.reply("Permission %s revoked for user %s in channel %s" % (
+                event.reply("Permission {0} revoked for {usergroup} {1} in channel {2}".format(
                     perm, name, channel,
+                    usergroup = "group" if name.startswith("%") else "user",
                     ))
             else:
-                event.reply("Global permission %s revoked for user %s" % (perm, name))
+                event.reply("Global permission {0} revoked for user {1}".format(perm, name,
+                    usergroup = "group" if name.startswith("%") else "user",
+                    ))
 
     @defer.inlineCallbacks
     def permission_list(self, event, match):
         name = match.groupdict().get('name', None)
         if name:
-            perms = list(self.permissions[name])
-            msgstr = "user %s has" % name
+            perms = set(tuple(x) for x in self.permissions[name])
+            if name.startswith("%"):
+                msgstr = "group {0} has".format(name)
+            else:
+                msgstr = "user {0} has".format(name)
+            groups = self.config['groups'][name]
         else:
             # Get info about the current user
-            perms = list((yield self._get_permissions(event.user)))
+            perms = set((yield self._get_permissions(event.user)))
             if self.authd_users.get(event.user, None):
                 event.reply("You are identified as %s" % self.authd_users[event.user])
+                groups = self.config['groups'][self.authd_users[event.user]]
             else:
                 event.reply("I don't know who you are")
+                groups = []
             msgstr = "you have"
 
+        # dereference groups
+        for group in groups:
+            perms.update(tuple(x) for x in self.permissions[group])
+
+        # Maps channels to the permissions `user` holds in that channel
         perms_map = defaultdict(set)
         for perm_chan, perm in perms:
             perms_map[perm_chan].add(perm)
@@ -387,7 +480,6 @@ class Auth(command.CommandPluginSuperclass):
             if perms_map:
                 event.reply("Also, %s some permissions in other channels. (Ask me in private to see them)" %
                         msgstr)
-
 
     ### Default permission callbacks
     def add_default(self, event, match):
@@ -432,3 +524,84 @@ class Auth(command.CommandPluginSuperclass):
             event.reply("Default permissions for channel %s: %s" % (
                 perm_chan,
                 ", ".join(perms)))
+
+    @defer.inlineCallbacks
+    def group_add(self, event, match):
+        gd = match.groupdict()
+        user = gd['user']
+        group = gd['group']
+
+        if not (yield self._has_permission(event.user,
+                "auth.edit.group.{0}".format(group), None)):
+            event.reply("You do not have permissions to modify that group")
+            return
+        
+        permlist = self.config['groups'][user]
+        if group in permlist:
+            event.reply("User {0} is already a member of group {1}".format(
+                user, group))
+        else:
+            permlist.append(group)
+            self.config.save()
+            event.reply("User {0} added as a member of group {1}".format(
+                user, group))
+
+    @defer.inlineCallbacks
+    def group_remove(self, event, match):
+        gd = match.groupdict()
+        user = gd['user']
+        group = gd['group']
+        
+        if not (yield self._has_permission(event.user,
+                "auth.edit.group.{0}".format(group), None)):
+            event.reply("You do not have permissions to modify that group")
+            return
+
+        permlist = self.config['groups'][user]
+        if group not in permlist:
+            event.reply("User {0} is not a member of group {1}".format(
+                user, group))
+        else:
+            permlist.remove(group)
+            self.config.save()
+            event.reply("User {0} removed from group {1}".format(
+                user, group))
+
+    @defer.inlineCallbacks
+    def group_list(self, event, match):
+        gd = match.groupdict()
+        group = gd['group']
+
+        if group:
+            # Request to list a group. First make sure the user has access to the group.
+            if not (yield self._has_permission(event.user,
+                    "auth.edit.group.{0}".format(group), None)):
+                event.reply("You do not have permissions to view that group")
+                return
+            
+            members = set()
+            for user, groups in self.config['groups'].items():
+                if group in groups:
+                    members.add(user)
+
+            members = sorted(members)
+            event.reply("Members in group {0}: {1}".format(group, ", ".join(members)),
+                    notice=True, direct=True)
+
+        else:
+            # List all groups the user has access to.
+            allgroups = set()
+            for user, groups in self.config['groups'].items():
+                allgroups.update(groups)
+
+            # Filter the groups the user has access to
+            access_groups = []
+            for g in allgroups:
+                if (yield self._has_permission(event.user,
+                    "auth.edit.group.{0}".format(g), None)):
+                    access_groups.append(g)
+
+            access_groups.sort()
+
+            log.msg(access_groups)
+            event.reply("Groups you have access to: {0}".format(", ".join(access_groups)))
