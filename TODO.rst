@@ -9,12 +9,8 @@ Ideas for the Future!
   one global prefix. This may sort of depend on the command restructuring idea
   though (see below)
 
-* Some kind of spam detector / rate limiter to quickly quiet users that are
-  spamming. To negate false positives I think it could also take into account
-  if the user is using webchat or not. Webchat users are more often spammers.
-  Punishment should be a 10 second quiet, so even on a false positive it's not
-  that bad. That should be plenty of time for an OP ot take additional action
-  if it was legit.
+  Note: I've already disabled the per-command prefixes on the few commands that
+  used it, but still to be done are to remove the feature entirely.
 
 * This point is more abstract, but it would be nice to have a generalized way
   to say "I want this to happen in X seconds". The admin plugin does this, but
@@ -31,6 +27,11 @@ Ideas for the Future!
   something previously scheduled? Would I have to deal with serialization? A
   mixin could simply call some dispatch method for laters and the plugin could
   do whatever it wants.
+
+  More thoughts: the plugins could statically define a mapping of callback
+  names to callback methods, in a class variable. Avoiding the problem of
+  methods being unserializable, you'd just serialize the callback name and
+  parameters.
 
 * Fix up logging. I want logging that is actually useful, tells which plugin
   it's coming from, the ability to turn logging on and off per plugin/module,
@@ -65,10 +66,37 @@ Ideas for the Future!
   permissions did what, and other pieces of the internal apis. I should have
   known I wouldn't keep it up to date.
 
-* Add in a group abstraction for permissions. It was pretty stupid of me not to
-  do this from the start. 4 years of security research on fancy abstractions
-  for specifying authorization and authentication and I go and do a stupid
-  access list for my bot.
+* The ability to load multiple instances of a plugin would be nice. For this
+  I'd have to re-think how plugins are named. I'm thinking the smallest delta
+  from current code to achieve this feature would be the concept of a "plugin
+  alias". When you launch a plugin, you can optionally give it an alias, which
+  identifies that instance both to control the plugin and to name its config
+  file.
+
+* If we can have multiple instances of some plugins, then along with that there
+  needs to be a way to set up per-plugin filters on incoming events. Some
+  plugins can be installed globally—they get full reign over all commands and
+  events sent from every channel. Some plugins I want to install with a
+  filter—they only receive events that match a criteria, so that I can run them
+  in just one channel. Also, some channel-unaware plugins I want to run in two
+  channels, so there needs to be a way to run two instances of the same plugin
+  (the above point) AND have them only respond to their respective channels.
+
+  I should also think about how the help system will work in this situation. If
+  you ask for help, does the help system know which commands you can execute
+  and where? Some plugins are "channel unaware", in that they perform a simple
+  function and respond to wherever the incomming message came from. I can use
+  these filters to restrict which channels they apply in. But do such commands
+  still exist in the global help listing? Maybe the solution is to have these
+  filters not only define a filter for incoming events, but also a filter for
+  the help system. Somehow.
+
+  Or maybe I just don't worry about the help system at all. I just declare that
+  commands listed in the help listing may or may not work in every channel. The
+  command system overhaul (next bullet) may be a better solution and may make
+  it eaiser to implement these kind of filters, but I think I have more
+  motivation for this change than the command system overhaul so this may be
+  the best option considering the circumstances.
 
 * Long term: redo the command plugin workflow. Instead of having command
   plugins inherit from a special base class which takes care of parsing
@@ -91,35 +119,3 @@ Ideas for the Future!
   command base class, which is something I'd like to avoid if possible).
   Conclusion: this is long term and may not happen and in any case needs more
   thought.
-
-* Also for the distant future: the ability to load multiple instances of a
-  plugin would be nice. For this I'd have to re-think how plugins are named. I
-  also need to think of a way to set which channels each responds to (maybe a
-  filter) for plugins that aren't aware of channel, and prevent commands from
-  clashing in channels they both apply in. See next bullet.
-
-* If we can have multiple instances of some plugins, then along with that
-  should be a way to set up per-plugin filters on incoming events. Some plugins
-  can be installed globally—they get full reign over all commands and events
-  sent from every channel. Some plugins are installed with a filter—they only
-  receive events that match a criteria.
-
-  This will help better support multi-channel bots where I want some set of
-  silly plugins in one channel but a different set of plugins that respond in
-  another channel.
-
-  I should also think about how the help system will work in this situation. If
-  you ask for help, does the help system know which commands you can execute
-  and where? Obviously some plugins can still run globally and have channel
-  access restricted by the permission system, like the admin plugins. Others,
-  like votd need multiple copies to run and depending on which channel you are
-  in, is routed to a different instance. But for a plugin like the
-  music/shoutcast plugin that we only want available in one channel, it would
-  still show up in the global help. hmm. Maybe the command restructuring would
-  help here, since we could filter on commands instead of incoming messages,
-  and the help system would be aware of commands and could hook into that.
-
-  Maybe I just don't worry about the help system at all. I just declare that
-  commands listed in the help listing may or may not work in every channel. I
-  think I have more motivation for this change than the command system overhaul
-  so this may be the best option considering the circumstances.
