@@ -232,10 +232,13 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
                     self.config['winners'].append(nick)
                     log.msg("User {0} has guessed the word of the day".format(nick))
                     self.config.save()
+                    lastwin = len(self.config['winners']) >= self.config['maxwinners']
+
                     # Delay a random amount to obscure the line that triggered it
                     # Warning: to avoid a rare race condition, the maximum
                     # delay here must be less than the configured waittime
-                    yield self.wait_for(timeout=random.randint(5,min(30, self.config['idle_time']-1)))
+                    if not lastwin:
+                        yield self.wait_for(timeout=random.randint(5,min(30, self.config['idle_time']-1)))
 
                     # Set the last win time and add the winning line to the
                     # list *after* the delay, so there is no confusion
@@ -244,15 +247,16 @@ class WordOfTheDay(EventWatcher, CommandPluginSuperclass):
                     self.lastwintime = time.time()
                     self.winlines.append(event.message.lower())
                     yield self.transport.issue_request("ircop.voice", event.channel, nick)
-                    self.transport.send_event(Event("irc.do_notice",
-                        user=nick,
-                        message="You have guessed the word of the day: “{0}”. Don’t tell anyone, it’s a secret! Enjoy your hat.".format(self.config['theword']),
-                        ))
+                    if not lastwin:
+                        self.transport.send_event(Event("irc.do_notice",
+                            user=nick,
+                            message="You have guessed the word of the day: “{0}”. Don’t tell anyone, it’s a secret! Enjoy your hat.".format(self.config['theword']),
+                            ))
 
-                    if len(self.config['winners']) >= self.config['maxwinners']:
+                    if lastwin:
                         self.transport.send_event(Event("irc.do_msg",
                             user=event.channel,
-                            message="That’s all the hats! Congrats to our winners. Until tomorrow…",
+                            message="That’s all the hats! The word of the day was “{0}”. Congrats to our winners. Until tomorrow…".format(self.config['theword']),
                             ))
 
 
