@@ -47,6 +47,9 @@ class IRCAdmin(CommandPluginSuperclass):
 
     """
     REQUIRES = ["ircop.OpProvider"]
+    DEFAULT_CONFIG = {
+            "defaulttime": None,
+            }
 
     def __init__(self, *args):
         self.started = False
@@ -293,7 +296,7 @@ class IRCAdmin(CommandPluginSuperclass):
         # Ban commands
         self.install_command(
                 cmdname="ban",
-                cmdmatch="ban|BAN",
+                cmdmatch="ban|BAN|kban|kb|kickban",
                 cmdusage="<nick or hostmask> [for <duration>]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 permission="irc.op.ban",
@@ -505,6 +508,9 @@ class IRCAdmin(CommandPluginSuperclass):
             except ValueError as e:
                 event.reply(str(e))
                 return
+
+        if not duration and self.config['defaulttime']:
+            duration = self.config['defaulttime']
         
         try:
             hostmask = (yield self._nick_to_hostmask(target))
@@ -551,13 +557,19 @@ class IRCAdmin(CommandPluginSuperclass):
         target = groupdict['nick']
         duration = groupdict['timestr']
         channel = event.channel
+        reason = "Banned by " + event.user.split("!")[0]
 
         if duration:
             try:
                 duration = parse_time(duration)
             except ValueError as e:
-                event.reply(str(e))
-                return
+                # Not parsable as a time? Use the string as a reason and use
+                # the default time instead.
+                reason = duration
+                duration = None
+
+        if not duration and self.config['defaulttime']:
+            duration = self.config['defaulttime']
 
         if "@" in target and "!" in target and not "$" in target:
             # Target was a mask. Kick if the nick section doesn't have any
@@ -599,7 +611,7 @@ class IRCAdmin(CommandPluginSuperclass):
             kick_d = self.transport.issue_request("ircop.kick",
                     channel=channel,
                     target=nick,
-                    reason="Banned by " + event.user.split("!")[0],
+                    reason=reason,
                     )
         try:
             yield ban_d
