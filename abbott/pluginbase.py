@@ -65,12 +65,12 @@ class PluginBoss(object):
         print("""\
 It seems your config file doesn't exist or is unreadable.
 I'll create a new one for you now""")
-        server = input("First, what irc server do you want to connect to? [irc.freenode.net] >")
+        server = raw_input("First, what irc server do you want to connect to? [irc.freenode.net] >")
         if not server.strip():
             server = "irc.freenode.net"
         prompt = "Uh huh, and what port would you like? SSL please. [7000] >"
         while True:
-            port = input(prompt)
+            port = raw_input(prompt)
             if not port.strip():
                 port = 7000
             try:
@@ -81,19 +81,19 @@ I'll create a new one for you now""")
                 break
 
         while True:
-            admin = input("And who should be the admin of this bot? This should be the nickserv account >")
+            admin = raw_input("And who should be the admin of this bot? This should be the nickserv account >")
             admin = admin.strip()
             if admin:
                 break
 
         while True:
-            nick = input("What should the bot's nickname be? >")
+            nick = raw_input("What should the bot's nickname be? >")
             nick = nick.strip()
             if nick:
                 break
 
         while True:
-            channel = input("Any particular channel I should join to begin with? >")
+            channel = raw_input("Any particular channel I should join to begin with? >")
             channel = channel.strip()
             if channel:
                 break

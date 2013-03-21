@@ -1,7 +1,7 @@
 # encoding: UTF-8
 from __future__ import unicode_literals
 import os.path
-from io import StringIO
+from io import StringIO, BytesIO
 import time
 import sys, os, posixpath, errno, stat
 import traceback
@@ -33,7 +33,7 @@ class PyPyTwistedSandboxProtocol(ProcessProtocol, object):
                     self.abort()
             reactor.callLater(timelimit, timesup)
 
-        self.__instream = StringIO()
+        self.__instream = BytesIO()
 
         # This is a workaround for pypy's unmarshaller behavior. Since we get
         # strings in blocks from the twisted reactor, we may not have a
