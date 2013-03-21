@@ -60,12 +60,6 @@ Ideas for the Future!
   clientobj.supported somewhere, I think. I just need to find the right value
   and use it.
 
-* Delete or update the docs. Inaccurate docs are worse than no docs. Plus I
-  think the code is mostly self explanatory. My original intent was to have the
-  docs be a reference of sorts that I could use to remind myself e.g. of what
-  permissions did what, and other pieces of the internal apis. I should have
-  known I wouldn't keep it up to date.
-
 * The ability to load multiple instances of a plugin would be nice. For this
   I'd have to re-think how plugins are named. I'm thinking the smallest delta
   from current code to achieve this feature would be the concept of a "plugin
@@ -119,3 +113,31 @@ Ideas for the Future!
   command base class, which is something I'd like to avoid if possible).
   Conclusion: this is long term and may not happen and in any case needs more
   thought.
+
+Abbott 2
+========
+
+Okay so there are 4 or so TODO items above that are not trivial to solve in
+isolation, so I'm now leaning towards more of a rewrite. That's okay though,
+this is a fun project, I can rewrite it if I want to!
+
+Rewrite goals
+-------------
+
+* Use Python 3
+
+* Drop Twisted requirement. Use the new Tulip async framework or similar
+
+* Restructure how commands work. No more complex logic in a plugin superclass
+
+* Add support for multiple instances of a plugin
+
+* Generalize plugin connections to an explicitly represented graph of some sort
+
+Meeting these goals will solve several of the issues above. In doing so, I
+should be able to add "filter" plugins so that some plugins are only active on
+certain channels, as well as "router" plugins so that I can route commands to
+different instances of a plugin depending on the origin channel.
+
+The ultimate goal is to be able to run a single instance of the bot for several
+IRC channels, but giving me the flexibility to run only what I want in each.
