@@ -1,9 +1,6 @@
 Ideas for the Future!
 =====================
 
-* Optional maximum/default ban/quiet timer, for channels whose ban/quiet lists
-  are prone to filling up.
-
 * Get rid of per-command prefixes. They're unconfigurable and complicate the
   code and nobody uses them anyways. Similar: per-chanel prefixes instead of
   one global prefix. This may sort of depend on the command restructuring idea
