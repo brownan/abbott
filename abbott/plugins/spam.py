@@ -3,12 +3,15 @@ from __future__ import unicode_literals
 
 from collections import deque
 import time
+import re
 
 from twisted.python import log
 from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass, require_channel
 from . import ircop
+from .. import pluginbase
+from ..transport import Event
 
 class Spam(CommandPluginSuperclass):
     """A plugin that watches the configured channel for spammers/flooders.
@@ -172,3 +175,115 @@ class Spam(CommandPluginSuperclass):
         self.config['duration'] = duration
         self.config.save()
         event.reply("Quiet duration set to {0} seconds".format(duration))
+
+class ServerAd(pluginbase.EventWatcher, CommandPluginSuperclass):
+    REQUIRES = ["admin.IRCAdmin"]
+
+    DEFAULT_CONFIG = {
+            "channel": None,
+            "msg": "Server advertising is strictly forbidden in #minecraft. Please take the time to read the rules before you come back. http://www.reddit.com/r/minecraft/wiki/irc",
+            "kickmsg": "No server advertising",
+            }
+
+    regex = re.compile(
+            r'''(?:^|\s|ip(?:=|:)|\*)(\d{1,3}(?:\.\d{1,3}){3})\.?(?:\s|$|:|\*|!|\.|,|;|\?)''', re.I)
+
+    def reload(self):
+        super(ServerAd, self).reload()
+
+    def start(self):
+        super(ServerAd, self).start()
+        self.listen_for_event("irc.on_user_joined")
+        permgroup = self.install_cmdgroup(
+                grpname="serverad",
+                permission="serverad",
+                helptext="Server Ad control configuration commands",
+                )
+
+        permgroup.install_command(
+                cmdname="on",
+                callback=self.on,
+                helptext="Enables the server ad plugin on this channel",
+                )
+        permgroup.install_command(
+                cmdname="off",
+                callback=self.off,
+                helptext="Enables the server ad plugin on this channel",
+                )
+
+    @require_channel
+    def on(self, event, match):
+        channel = event.channel
+        if self.config['channel'] == channel:
+            event.reply("Server Ad detection is already on for {0}".format(channel))
+        else:
+            self.config['channel'] = channel
+            self.config.save()
+            event.reply("Server Ad detection is now on for {0}".format(channel))
+
+    @require_channel
+    def off(self, event, match):
+        channel = event.channel
+        self.config['channel'] = None
+        event.reply("Server ad detection is now off in {0}.".format(channel))
+        self.config.save()
+
+    @classmethod
+    def _server_in(cls, text):
+        try:
+            ip = cls.regex.findall(text)
+            if ip:
+                split_ip = [int(i) for i in ip[0].split(".")]
+            else:
+                return False
+        except ValueError:
+            return False
+        if split_ip[:3] == [10, 0, 0]:
+            return False
+        elif split_ip[:3] == [127, 0, 0]:
+            return False
+        elif split_ip[:2] == [192, 168]:
+            return False
+        elif split_ip == [0] * 4:
+            return False
+        elif split_ip in [[1,2,3,4], [1,1,1,1], [8,8,8,8], [8,8,4,4]]:
+            return False
+        for i in split_ip:
+            if not i <= 255:
+                return False
+        return True
+
+    @defer.inlineCallbacks
+    def on_event_irc_on_user_joined(self, event):
+        nick = event.user.split("!")[0]
+        channel = event.channel
+
+        if channel == self.config['channel']:
+            yield self.watch_user(nick, channel)
+
+    @pluginbase.non_reentrant(self=0, nick=1)
+    @defer.inlineCallbacks
+    def watch_user(self, nick, channel):
+        joined_time = time.time()
+        while time.time() < joined_time + 60*5:
+
+            event = (yield self.wait_for(
+                    Event("irc.on_privmsg", channel=channel),
+                    timeout=joined_time+60*5-time.time()
+                ))
+
+            if not event:
+                # Timed out
+                break
+
+            if event.user.split("!")[0] != nick:
+                continue
+
+            if self._server_in(event.message):
+                yield self.transport.issue_request("ircop.kick", event.channel, nick,
+                        self.config['kickmsg'])
+                self.transport.send_event(Event("irc.do_notice",
+                        user=nick,
+                        message=self.config['msg'],
+                        ))
+
