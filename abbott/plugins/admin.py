@@ -318,7 +318,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="redirect",
                 cmdmatch="redirect|fixurshit",
                 cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)$",
+                argmatch = "(?P<nick>[^ ]+)",
                 permission="irc.op.ban",
                 callback=self.redirect,
                 helptext="Redirects a user to ##FIX_YOUR_CONNECTION"
@@ -371,6 +371,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         """
         if ("!" in nick and "@" in nick) or (nick.startswith("$")):
+            # nick is not actually a nick, but already a mask of some sort
             defer.returnValue(nick)
             return
 
@@ -566,17 +567,32 @@ class IRCAdmin(CommandPluginSuperclass):
         # an extban.
         nick = groupdict['nick']
         channel = event.channel
+        destchan = "##FIX_YOUR_CONNECTION"
 
         try:
-            hostmask = (yield self._nick_to_hostmask(nick))
+            whois_results = (yield self.transport.issue_request("irc.whois", nick))
+            whoisuser = whois_results['RPL_WHOISUSER']
+            nick = whoisuser[0]
+            username = whoisuser[1]
+            hostname = whoisuser[2]
+            hostmask = "*!{0}@*".format(username)
         except ircutil.NoSuchNick:
             hostmask = "{0}!*@*".format(nick)
 
-        hostmask += "$##FIX_YOUR_CONNECTION"
+        hostmask += "$" + destchan
+
+        ban_d  = self._do_moderequest(channel, 'b', hostmask, 60*60*24)
+        kick_d = self.transport.issue_request("ircop.kick",
+                channel=channel,
+                target=nick,
+                reason="Redirected to {0}".format(destchan),
+                )
         try:
-            yield self._do_moderequest(channel, 'b', hostmask, 60*30)
+            yield ban_d
+            yield kick_d
         except ircop.OpFailed as e:
             event.reply(str(e))
+        event.reply("Redirected {0} to {1} for 1 day".format(nick, destchan))
 
     @require_channel
     @defer.inlineCallbacks
