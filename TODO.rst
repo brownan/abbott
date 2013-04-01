@@ -57,6 +57,11 @@ Ideas for the Future!
   clientobj.supported somewhere, I think. I just need to find the right value
   and use it.
 
+* The code that checks to see if a user would have had permission for a channel
+  if they were logged in does not traverse groups. Beyond that, it invokes
+  methods and functions directly from the auth plugin. I should really change
+  that to use the request system and expose a method for this purpose.
+
 * The ability to load multiple instances of a plugin would be nice. For this
   I'd have to re-think how plugins are named. I'm thinking the smallest delta
   from current code to achieve this feature would be the concept of a "plugin
@@ -131,6 +136,12 @@ Rewrite goals
 
 * Generalize plugin connections to an explicitly represented graph of some sort
 
+* A pattern I have a lot is to write a plugin with some functionality that I
+  want to expose to users, but then later I find I want to extend that
+  functionality or use it from another plugin. I want to find a way to reduce
+  boilerplate code for this case, so I can easily have the same code exposed to
+  both internal and external interfaces.
+
 Meeting these goals will solve several of the issues above. In doing so, I
 should be able to add "filter" plugins so that some plugins are only active on
 certain channels, as well as "router" plugins so that I can route commands to
@@ -138,3 +149,68 @@ different instances of a plugin depending on the origin channel.
 
 The ultimate goal is to be able to run a single instance of the bot for several
 IRC channels, but giving me the flexibility to run only what I want in each.
+
+Concepts
+--------
+
+* An *endpoint* is a source of input events for the plugin network. It
+  originates events that have been initiated, typically, by a user. An endpoint
+  will typically emit one or more generic event types, such as a *message*
+  event or a *command* event. Other various plugins may respond to those events.
+
+  Examples of endpoints may be: an IRC endpoint, a Minecraft connector
+  endpoint, or the local console.
+
+* A *command* is a user-facing API, or more precisely, is a general event type
+  that endpoints will typically emit. In its most general form, a command has a
+  name, and a set of arguments. Commands also typically have a notion of a user
+  that initated it, and an access permission associated with the command.
+
+  Each endpoint has a particular way of specifying commands. In IRC, for
+  example, commands are prefixed with an ! (or some other configurable symbol).
+  In the console endpoint, everything typed is a command. The endpoint does the
+  basic parsing of a command into a command name and argument string, and then
+  emits the appropriate command event.
+  
+  There are also more specific command types that only apply in some contexts.
+  For example, some plugins may implement an *IRC Command*, which has an
+  additional attribute: the channel of origin. Some IRC commands may only apply
+  in a particular channel, and some commands may only apply to IRC (such as
+  operator commands). Therefore, some plugins can respond to general events,
+  and some must respond to a more specific event type.
+
+* A *request* is an internal-facing API. Requests are used to pass data from
+  plugin to plugin.
+
+  XXX More detail is needed here. Can more than one plugin listen to or respond
+  to a particular request? Should things like irc actions be requests or
+  events?
+
+* An *event* is a signal from one plugin to another that something has
+  happened. Plugins that emit events do so in response to something, plugins
+  that listen for events can react to them.
+
+  Events are typed. A plugin that listens for a particular type of event knows
+  what the event signifies, and what attributes it can expect on the event
+  object. Commands are types of events, for example.
+
+  There are general events, which can be emitted by many plugins, and
+  specialized events, which are emitted by or listened for by only one plugin.
+  For example, command events are general, they are emitted by any endpoint
+  plugin where users may want to issue commands, and listened to by any plugin
+  that implements commands. On the other hand, an IRC plugin, for example,
+  would emit specialized "irc" events in response to commands received from the
+  irc server.
+
+Event Flow
+----------
+
+TODO describe how plugins communicate, how they are connected together, and how
+events flow from plugin to plugin.
+
+Use cases
+---------
+
+TODO describe specific cases I want to support and how the framework will
+support them. Including commands, help lists, permissions, multiple instances
+of a plugin connected to different channels.
