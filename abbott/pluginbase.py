@@ -377,7 +377,7 @@ class EventWatcher(object):
 
         toremove = []
         try:
-            for event_match, d, timer in self.__watchers[event.eventtype]:
+            for event_match, d, timer in list(self.__watchers[event.eventtype]):
                 # Every attribute specified in the event_match template object must
                 # be equal to the corresponding attribute in the received event
                 for attr in dir(event_match):
