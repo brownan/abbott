@@ -318,10 +318,10 @@ class IRCAdmin(CommandPluginSuperclass):
                 cmdname="redirect",
                 cmdmatch="redirect|fixurshit|fixurconnection|fixyourshit|fixyourconnection",
                 cmdusage="<nick>",
-                argmatch = "(?P<nick>[^ ]+)",
+                argmatch = "(?P<nick>[^ ]+)(?: (?P<channel>#[^ ]+))?",
                 permission="irc.op.ban",
                 callback=self.redirect,
-                helptext="Redirects a user to ##FIX_YOUR_CONNECTION"
+                helptext="Redirects a user to ##FIX_YOUR_CONNECTION or the given channel for a hard-coded length of time (1 day)"
                 )
 
         self.install_command(
@@ -567,7 +567,9 @@ class IRCAdmin(CommandPluginSuperclass):
         # an extban.
         nick = groupdict['nick']
         channel = event.channel
-        destchan = "##FIX_YOUR_CONNECTION"
+        destchan = groupdict["channel"]
+        if not destchan:
+            destchan = "##FIX_YOUR_CONNECTION"
 
         try:
             whois_results = (yield self.transport.issue_request("irc.whois", nick))
