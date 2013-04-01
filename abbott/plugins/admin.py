@@ -315,6 +315,16 @@ class IRCAdmin(CommandPluginSuperclass):
                 )
 
         self.install_command(
+                cmdname="redirect",
+                cmdmatch="redirect|fixurshit",
+                cmdusage="<nick>",
+                argmatch = "(?P<nick>[^ ]+)$",
+                permission="irc.op.ban",
+                callback=self.redirect,
+                helptext="Redirects a user to ##FIX_YOUR_CONNECTION"
+                )
+
+        self.install_command(
                 cmdname="holdop",
                 cmdusage="<time>",
                 argmatch="(?P<time>.+)$",
@@ -547,6 +557,26 @@ class IRCAdmin(CommandPluginSuperclass):
                         "Woops, my bad!",
                         )
             defer.returnValue(True)
+
+    @require_channel
+    @defer.inlineCallbacks
+    def redirect(self, event, match):
+        groupdict = match.groupdict()
+        # nick here could be a nick, a hostmask (with possible wildcards), or
+        # an extban.
+        nick = groupdict['nick']
+        channel = event.channel
+
+        try:
+            hostmask = (yield self._nick_to_hostmask(nick))
+        except ircutil.NoSuchNick:
+            hostmask = "{0}!*@*".format(nick)
+
+        hostmask += "$##FIX_YOUR_CONNECTION"
+        try:
+            yield self._do_moderequest(channel, 'b', hostmask, 60*30)
+        except ircop.OpFailed as e:
+            event.reply(str(e))
 
     @require_channel
     @defer.inlineCallbacks
