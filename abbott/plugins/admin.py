@@ -316,7 +316,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         self.install_command(
                 cmdname="redirect",
-                cmdmatch="redirect|fixurshit|fixurconnection",
+                cmdmatch="redirect|fixurshit|fixurconnection|fixyourshit|fixyourconnection",
                 cmdusage="<nick>",
                 argmatch = "(?P<nick>[^ ]+)",
                 permission="irc.op.ban",
