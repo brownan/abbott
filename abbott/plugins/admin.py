@@ -70,7 +70,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         if self.started:
             self._set_all_timers()
-        
+
     def _set_all_timers(self):
         """Reads from the config and syncs the twisted timers with that"""
 
@@ -84,10 +84,10 @@ class IRCAdmin(CommandPluginSuperclass):
     def _set_timer(self, delay, param, channel, mode):
         """In delay seconds, issue a mode request with the given parameter on
         channel
-        
+
         mode is a two character string where the first character is + or - and
         the second character is a letter
-        
+
         """
         # First, cancel any existing timers and remove any existing saved
         # laters from the config that match this one.
@@ -154,7 +154,7 @@ class IRCAdmin(CommandPluginSuperclass):
                     user=channel,
                     message=s,
                     ))
-                
+
 
         # Now submit the do_later() function to twisted to call it later
         timer = reactor.callLater(max(1,delay), do_later)
@@ -174,7 +174,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 (time.time()+delay, param, channel, mode)
                 )
         self.config.save()
-        
+
     def on_event_irc_on_mode_change(self, event):
         """If a timer was set to un-ban or un-quiet a user, and we see them be
         un-banned or un-quieted before we get to it, cancel the timer.
@@ -317,7 +317,7 @@ class IRCAdmin(CommandPluginSuperclass):
         self.install_command(
                 cmdname="redirect",
                 cmdmatch="redirect|fixurshit|fixurconnection|fixyourshit|fixyourconnection",
-                cmdusage="<nick>",
+                cmdusage="<nick> [#channel]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<channel>#[^ ]+))?",
                 permission="irc.op.ban",
                 callback=self.redirect,
@@ -332,7 +332,7 @@ class IRCAdmin(CommandPluginSuperclass):
                 callback=self.holdop,
                 helptext="Tells the bot to hold op for the given amount of time",
                 )
-        
+
         self.install_command(
                 cmdname="mode",
                 cmdusage="[+-]<mode_letter> [param] (for|until|in|at <time>)",
@@ -353,7 +353,7 @@ class IRCAdmin(CommandPluginSuperclass):
     def _nick_to_hostmask(self, nick):
         """Takes a nick or a hostmask and returns a parameter suitable for the
         +b or +q modes.
-        
+
         If the items given looks like a hostmask (contains a ! and a @) then
         it is returned. If the item is an extban (starts with a $), then that
         is returned. Otherwise, it is assumed the parameter is a nickname and a
@@ -522,7 +522,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         if not duration and self.config['defaulttime']:
             duration = self.config['defaulttime']
-        
+
         try:
             hostmask = (yield self._nick_to_hostmask(target))
         except ircutil.NoSuchNick:
@@ -576,7 +576,7 @@ class IRCAdmin(CommandPluginSuperclass):
             whoisuser = whois_results['RPL_WHOISUSER']
             nick = whoisuser[0]
             username = whoisuser[1]
-            hostname = whoisuser[2]
+            #hostname = whoisuser[2]
             hostmask = "*!{0}@*".format(username)
         except ircutil.NoSuchNick:
             hostmask = "{0}!*@*".format(nick)
@@ -760,7 +760,7 @@ class IRCAdmin(CommandPluginSuperclass):
             event.reply(str(e))
         if delay:
             event.reply("It shall be done.")
-        
+
     def _do_modederequest(self, channel, mode, hostmask, delay):
         """See _do_moderequest()"""
         if delay:
@@ -855,11 +855,11 @@ class IRCAdmin(CommandPluginSuperclass):
         """
         if not isinstance(duration, int):
             duration = parse_time(duration)
-        
+
         hostmask = (yield self._nick_to_hostmask(target))
 
         yield self._do_moderequest(channel, 'q', hostmask, duration)
-        
+
 
 class IRCTopic(CommandPluginSuperclass):
     """Topic manipulation commands.
@@ -953,7 +953,7 @@ class IRCTopic(CommandPluginSuperclass):
         """Returns a deferred object with the current topic.
         The callback will be called with the channel topic once it's known. The
         errback will be called if the topic cannot be determined
-        
+
         """
         topic_stack = self.topic_stack[channel]
         if topic_stack:
