@@ -583,7 +583,7 @@ class IRCAdmin(CommandPluginSuperclass):
 
         hostmask += "$" + destchan
 
-        ban_d  = self._do_moderequest(channel, 'b', hostmask, 60*60*24)
+        ban_d  = self._do_moderequest(channel, 'b', hostmask, 60*60*2)
         kick_d = self.transport.issue_request("ircop.kick",
                 channel=channel,
                 target=nick,
@@ -594,7 +594,7 @@ class IRCAdmin(CommandPluginSuperclass):
             yield kick_d
         except ircop.OpFailed as e:
             event.reply(str(e))
-        event.reply("Redirected {0} to {1} for 1 day".format(nick, destchan))
+        event.reply("Redirected {0} to {1} for 2 hours".format(nick, destchan))
 
     @require_channel
     @defer.inlineCallbacks

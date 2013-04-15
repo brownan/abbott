@@ -476,6 +476,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             self.config["currentvoice"] = newnick
             self.config.save()
 
+    @non_reentrant()
     @defer.inlineCallbacks
     def transfer(self, event, match):
         target = match.groupdict()['nick']
