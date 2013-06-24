@@ -287,3 +287,15 @@ class ServerAd(pluginbase.EventWatcher, CommandPluginSuperclass):
                         message=self.config['msg'],
                         ))
 
+class ChannelAd(ServerAd):
+    DEFAULT_CONFIG = {
+            "channel": None,
+            "msg": "Channel advertising is strictly forbidden in #minecraft. Please take the time to read the rules before you come back. http://www.reddit.com/r/minecraft/wiki/irc",
+            "kickmsg": "No channel advertising",
+            }
+
+    regex = re.compile(r"join #[^ ]+")
+
+    @classmethod
+    def _server_in(cls, text):
+        return bool(cls.regex.search(text))

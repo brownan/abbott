@@ -8,19 +8,10 @@ from twisted.internet import reactor
 from twisted.python import log
 from twisted.internet import defer
 
-try:
-    from parsedatetime.parsedatetime import Calendar
-except ImportError:
-    try:
-        # They changed the package layout at some point
-        from parsedatetime import Calendar
-    except ImportError:
-        print("The admin plugins need the parsedatetime package. The latest in svn supports Python 3.")
-        print("Checkout the latest from http://parsedatetime.googlecode.com/svn/trunk/")
-        print("Then run a pip install on that directory")
-        raise
+from parsedatetime.parsedatetime import Calendar
 
 from ..command import CommandPluginSuperclass, require_channel
+from ..pluginbase import EventWatcher
 from ..transport import Event
 from . import ircutil
 from . import ircop
@@ -39,7 +30,7 @@ def parse_time(timestr):
     now = time.time()
     return max(1, timestamp-now)
 
-class IRCAdmin(CommandPluginSuperclass):
+class IRCAdmin(EventWatcher, CommandPluginSuperclass):
     """Provides a command interface to IRC operator tasks. Uses the plugins in
     the ircop module to perform the operations.
 
@@ -224,7 +215,7 @@ class IRCAdmin(CommandPluginSuperclass):
         # kick command
         self.install_command(
                 cmdname="kick",
-                cmdmatch="kick|KICK",
+                cmdmatch="kick|KICK|gtfo",
                 cmdusage="<nickname> [reason]",
                 argmatch = "(?P<nick>[^ ]+)( (?P<reason>.*))?$",
                 permission="irc.op.kick",
@@ -347,6 +338,15 @@ class IRCAdmin(CommandPluginSuperclass):
                 permission="irc.op.m",
                 callback=self.moderatedmode,
                 helptext="FOR EMERGENCY USE ONLY! Sets +m on the channel to quiet it in an emergency",
+                )
+
+        self.install_command(
+                cmdname="flex",
+                permission="irc.op.flex",
+                argmatch="(?P<time>.+)?$",
+                cmdusage="[time to hold op]",
+                callback=self.flex,
+                helptext="OPs you for a few seconds, to show off your powah!",
                 )
 
     @defer.inlineCallbacks
@@ -483,6 +483,26 @@ class IRCAdmin(CommandPluginSuperclass):
                 yield d
         except ircop.OpFailed as e:
             event.reply(str(e))
+
+    @require_channel
+    @defer.inlineCallbacks
+    def flex(self, event, match):
+        nick = event.user.split("!",1)[0]
+        channel = event.channel
+        duration = match.groupdict()['time']
+        if duration:
+            try:
+                duration = parse_time(duration)
+            except ValueError:
+                duration = 10
+        else:
+            duration = 10
+        yield self.transport.issue_request("ircop.op", channel=channel,
+                target=nick)
+        yield self.wait_for(timeout=duration)
+        yield self.transport.issue_request("ircop.deop", channel=channel,
+                target=nick)
+
 
     @require_channel
     @defer.inlineCallbacks

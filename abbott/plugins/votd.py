@@ -383,7 +383,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             if user != winner:
                 self.config['multipliers'][user] = min(1.0, m*1.5)
             else:
-                self.config['multipliers'][user] = m*0.001
+                self.config['multipliers'][user] = m*0.01
 
         self.config.save()
 
