@@ -373,8 +373,6 @@ class EventWatcher(object):
         super(EventWatcher, self).stop()
 
     def received_event(self, event):
-        super(EventWatcher, self).received_event(event)
-
         toremove = []
         try:
             for event_match, d, timer in list(self.__watchers[event.eventtype]):
@@ -398,6 +396,8 @@ class EventWatcher(object):
             # putting this in a finally block can't hurt
             for item in toremove:
                 self.__watchers[event.eventtype].remove(item)
+        super(EventWatcher, self).received_event(event)
+
 
     def wait_for(self, event_match=None, timeout=None):
         """This method returns a twisted deferred that fires when an event is
