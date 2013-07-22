@@ -17,7 +17,7 @@ class Unicoder(CommandPluginSuperclass):
                 )
 
     def lookup_by_chr(self, event, match):
-        c = match.groupdict()['chr'] or chr(int(match.groupdict()['uni'],16))
+        c = match.groupdict()['chr'] or unichr(int(match.groupdict()['uni'],16))
         self._info_on_char(event.reply, c)
 
     def _info_on_char(self, reply, c):
