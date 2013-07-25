@@ -86,6 +86,7 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         super(VoiceOfTheDay, self).start()
 
         self.listen_for_event("irc.on_nick_change")
+        self.listen_for_event("irc.on_user_kick")
 
         votdgroup = self.install_cmdgroup(
                 grpname="votd",
@@ -475,6 +476,17 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         if self.config["currentvoice"] and self.config["currentvoice"] == oldnick:
             self.config["currentvoice"] = newnick
             self.config.save()
+
+    def on_event_irc_on_user_kick(self, event):
+        target = event.kickee
+        channel = event.channel
+
+        if channel != self.config['channel']:
+            return
+
+        self.config['counter'][target] = 0
+        self.config['multipliers'][target] = 0.01
+        self.config.save()
 
     @non_reentrant()
     @defer.inlineCallbacks
