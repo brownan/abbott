@@ -550,13 +550,18 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         if not user:
             user = event.user.split("!")[0]
+
+        win_times = self.config["win_counter"].get(user, 0)
+
         if user.lower() == event.user.split("!")[0].lower():
             msg = "Your chance of winning the next VOTD drawing is"
+            msg2 = "You have won {0} time{1}".format(win_times, "s" if win_times != 1 else "")
             punishment = lambda x: max(0, min(int(x*0.9), x-5))
             self.config["counter"][user] = punishment(self.config["counter"][user])
             self.config.save()
         else:
             msg = "{0}’s chance of winning the next VOTD is".format(user)
+            msg2 = "{0} has won {1} time{2}".format(user, win_times, "s" if win_times != 1 else "")
 
         if user not in self.config['counter']:
             return
@@ -572,3 +577,4 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         my_chances = int(my_ecount) / total * 100
         event.reply("{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]),
                 **reply_opts)
+        event.reply(msg2, **reply_opts)
