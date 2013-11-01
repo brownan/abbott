@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 from collections import defaultdict, deque
 import time
 import random
+import re
 
 from twisted.internet import reactor
 from twisted.python import log
@@ -379,10 +380,29 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
 
         whoisuser = whois_results['RPL_WHOISUSER']
 
+        nick, username, host = whoisuser[0], whoisuser[1], whoisuser[2]
+
+        if host.startswith("gateway/web/freenode/ip."):
+            nick = "*"
+            username = "*"
+            host = host.split("/")[-1][3:]
+        elif host.startswith("gateway/"):
+            # some other gateway. ban by username.
+            nick = "*"
+            host = "gateway/*"
+        elif re.match("[0-9a-f:]+$", host) and host.count(":") > 2:
+            # looks like an ipv6 address. ban the entire host.
+            nick = "*"
+            username = "*"
+            host = host + "/64"
+        else:
+            nick = "*"
+            username = "*"
+
         mask = "{0}!{1}@{2}".format(
-                '*',
-                '*',
-                whoisuser[2],
+                nick,
+                username,
+                host
                 )
 
         defer.returnValue(mask)
