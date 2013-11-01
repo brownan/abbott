@@ -390,11 +390,6 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             # some other gateway. ban by username.
             nick = "*"
             host = "gateway/*"
-        elif re.match("[0-9a-f:]+$", host) and host.count(":") > 2:
-            # looks like an ipv6 address. ban the entire host.
-            nick = "*"
-            username = "*"
-            host = host + "/64"
         else:
             nick = "*"
             username = "*"
