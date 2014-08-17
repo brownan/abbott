@@ -555,13 +555,25 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         if user.lower() == event.user.split("!")[0].lower():
             msg = "Your chance of winning the next VOTD drawing is"
-            msg2 = "You have {0}won {1}".format("never " if win_times==0 else "","" if win_times==0 else "once" if win_times==1 else "twice" if win_times==2 else str(win_times) + " times")
+            msg2 = ""
+            if win_times == 0:
+                msg2 = "You have never won"
+            elif win_times == 1 or win_times == 2:
+                msg2 = "You have won " + ("twi" if win_times-1 else "on") + "ce"
+            else:
+                msg2 = "You have won " + str(win_times) + " times"
             punishment = lambda x: max(0, min(int(x*0.9), x-5))
             self.config["counter"][user] = punishment(self.config["counter"][user])
             self.config.save()
         else:
             msg = "{0}’s chance of winning the next VOTD is".format(user)
-            msg2 = "{0} has {1}won {2}".format(user,"never " if win_times==0 else "","" if win_times==0 else "once" if win_times==1 else "twice" if win_times==2 else str(win_times) + " times")
+            msg2 = user
+            if win_times == 0:
+                msg2 = " has never won"
+            elif win_times == 1 or win_times == 2:
+                msg2 = " has won " + ("twi" if win_times-1 else "on") + "ce"
+            else:
+                msg2 = " has won " + str(win_times) + " times"
 
         if user not in self.config['counter']:
             return
