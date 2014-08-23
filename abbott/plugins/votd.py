@@ -542,17 +542,23 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
         event._was_odds = True
         user = match.groupdict()['user']
 
+        # The following is a bit of code to throttle the amount the bot will spam the channel.
+        # If too many people ask for odds within some time threshold, the bot will start replying
+        # in private messages
         if len(self.last_odds) == self.last_odds.maxlen and time.time() - self.last_odds[0] < 60:
             reply_opts = {"notice": True, "direct": True}
         else:
             reply_opts = {}
         self.last_odds.append(time.time())
 
+        # odds requested with no optional parameter, assume it's for the requesting user
         if not user:
             user = event.user.split("!")[0]
 
         win_times = self.config["win_counter"].get(user, 0)
 
+        # If the user requesting odds is the same user odds were requested about, then
+        # issue a mild punishment as discouragement for spamming
         if user.lower() == event.user.split("!")[0].lower():
             msg = "Your chance of winning the next VOTD drawing is"
             msg2 = "You have won {0} time{1}".format(win_times, "s" if win_times != 1 else "")
@@ -575,6 +581,6 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
 
         my_ecount = self.config['counter'][user] * self.config['multipliers'][user] * self.config['scalefactor']
         my_chances = int(my_ecount) / total * 100
-        event.reply("{1} {0:.2f}% with {2} entries and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]),
+        event.reply(u"{1} {0:.2f}% with {2} points and a multiplier of {3:.3f}".format(my_chances, msg, self.config['counter'][user], self.config['multipliers'][user]),
                 **reply_opts)
         event.reply(msg2, **reply_opts)
