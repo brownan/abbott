@@ -309,11 +309,11 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         self.install_command(
                 cmdname="redirect",
                 cmdmatch="redirect|fixurshit|fixurconnection|fixyourshit|fixyourconnection",
-                cmdusage="<nick> [#channel]",
+                cmdusage="<nick or hostmask> [#channel]",
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<channel>#[^ ]+))?",
                 permission="irc.op.ban",
                 callback=self.redirect,
-                helptext="Redirects a user to ##FIX_YOUR_CONNECTION or the given channel for a hard-coded length of time (1 day)"
+                helptext="Redirects a user to ##FIX_YOUR_CONNECTION or the given channel for a hard-coded length of time (2 hours)"
                 )
 
         self.install_command(
@@ -606,17 +606,27 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         if not destchan:
             destchan = "##FIX_YOUR_CONNECTION"
 
-        try:
-            whois_results = (yield self.transport.issue_request("irc.whois", nick))
-            whoisuser = whois_results['RPL_WHOISUSER']
-            nick = whoisuser[0]
-            username = whoisuser[1]
-            #hostname = whoisuser[2]
-            hostmask = "*!{0}@*".format(username)
-        except ircutil.NoSuchNick:
-            hostmask = "{0}!*@*".format(nick)
+        if "!" in nick or "@" in nick:
+            # given a mask, not a nick.
+            hostmask = nick
+            if "$" not in nick:
+                hostmask += "$" + destchan
+        else:
+            try:
+                # Try to do a whois. if successful, we ban by username, not
+                # nick, since sometimes bouncy people rejoin with underscores
+                # or whatever
+                whois_results = (yield self.transport.issue_request("irc.whois", nick))
+                whoisuser = whois_results['RPL_WHOISUSER']
+                nick = whoisuser[0]
+                username = whoisuser[1]
+                #hostname = whoisuser[2]
+                hostmask = "*!{0}@*".format(username)
+            except ircutil.NoSuchNick:
+                # just ban by nick
+                hostmask = "{0}!*@*".format(nick)
 
-        hostmask += "$" + destchan
+            hostmask += "$" + destchan
 
         ban_d  = self._do_moderequest(channel, 'b', hostmask, 60*60*2)
         kick_d = self.transport.issue_request("ircop.kick",
