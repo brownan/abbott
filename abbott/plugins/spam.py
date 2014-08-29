@@ -15,19 +15,11 @@ from ..transport import Event
 
 class Spam(CommandPluginSuperclass):
     """A plugin that watches the configured channel for spammers/flooders.
-    Tuned for the kinds of spam we see in #minecraft, this plugin looks for
-    webchat users who, as their first two lines, say the same line within 2
-    seconds.
-
-    If line is less than 15 characters long, the number of lines said increases
-    by 1 before they're quieted.
-
-    If the user is not a webchat user, or the webchat user has said some other
-    lines first, the number of lines said increases by 1 before they're
-    quieted.
-
-    So a webchat user may be quieted after just two lines if they are repeats
-    and are the first things he/she says.
+    
+    The algorithm is pretty simple: if a user says more than a certain number
+    of lines within a certain number of seconds, they are quieted temporarily.
+    The values for number of lines and seconds are configurable. Also, tracked
+    is lines that are repeats, with a separate configurable values.
 
     This is a single-channel plugin.
 
