@@ -575,11 +575,11 @@ class VoiceOfTheDay(EventWatcher, CommandPluginSuperclass):
             msg = "{0}’s chance of winning the next VOTD is".format(user)
             msg2 = user
             if win_times == 0:
-                msg2 = " has never won"
+                msg2 += " has never won"
             elif win_times == 1 or win_times == 2:
-                msg2 = " has won " + ("twi" if win_times-1 else "on") + "ce"
+                msg2 += " has won " + ("twi" if win_times-1 else "on") + "ce"
             else:
-                msg2 = " has won " + str(win_times) + " times"
+                msg2 += " has won " + str(win_times) + " times"
 
         if user not in self.config['counter']:
             return
