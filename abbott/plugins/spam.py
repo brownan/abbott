@@ -9,7 +9,7 @@ from twisted.python import log
 from twisted.internet import defer
 
 from ..command import CommandPluginSuperclass, require_channel
-from . import ircop
+from . import ircop, ircutil
 from .. import pluginbase
 from ..transport import Event
 
@@ -36,19 +36,33 @@ class Spam(CommandPluginSuperclass):
 
     DEFAULT_CONFIG = {
             "channel": None,
-            "msg": "No flooding is allowed",
+            "msg": "You're talking too fast. Please be mindful and don't flood the channel.",
             "duration": 30,
+            # X Lines said within Y seconds
+            "LS_THRESH": (6, 7),
+
+            # X repeat lines within Y seconds
+            "REPEAT_THRESH": (3, 3),
             }
 
     def reload(self):
         super(Spam, self).reload()
 
-    def start(self):
-        super(Spam, self).start()
+        # The config may have changed, and we may need a larger deque
+        self._initdeque()
+
+    def _initdeque(self):
+        LS_THRESH = self.config['LS_THRESH']
+        REPEAT_THRESH = self.config['REPEAT_THRESH']
 
         # This holds the last few lines said in the channel. Specifically, each
         # element is a tuple: (hostmask, timestamp, message)
-        self.lastlines = deque(maxlen=4)
+        self.lastlines = deque(maxlen=max(x[0] for x in (LS_THRESH, REPEAT_THRESH)))
+
+    def start(self):
+        super(Spam, self).start()
+
+        self._initdeque()
 
         permgroup = self.install_cmdgroup(
                 grpname="spam",
@@ -106,51 +120,39 @@ class Spam(CommandPluginSuperclass):
         hostmask = event.user
         nick = hostmask.split("!")[0]
 
+        LS_THRESH = self.config['LS_THRESH']
+        REPEAT_THRESH = self.config['REPEAT_THRESH']
+
         if self.config['channel'] != channel:
             return
 
         # Now go and log this line in the rotating buffer of last lines for the
-        # channel.
+        # channel. the self.lastlines deque holds (hostmask, timestamp,
+        # messagestr) tuples.
         now = time.time()
         self.lastlines.append((hostmask, now, event.message))
 
-        # Count how many lines the current user has said in the last 2 seconds.
+        # Count how many lines the current user has said in the last few seconds.
         # This will always be at least 1
         linessaid = sum(1 for t in self.lastlines if
-                t[0] == hostmask and t[1] + 2 > now
+                t[0] == hostmask and t[1] + LS_THRESH[1] > now
                 ) 
 
-        # count how many lines said match the current line (not including the
-        # current line). This will always be at least 1
+        # count how many lines from the current user match the current line in
+        # the last few seconds. This will always be at least 1
         repeats = sum(1 for t in self.lastlines if
-                t[0] == hostmask and t[1] + 2 > now and
+                t[0] == hostmask and t[1] + REPEAT_THRESH[1] > now and
                 t[2] == event.message
                 )
 
-        is_webchat = event.user.split("@")[-1].startswith("gateway/web/")
-        #shortline = len(event.message) <= 15
+        if linessaid >= LS_THRESH[0] or repeats >= REPEAT_THRESH[0]:
+            log.msg("A line by {} was detected as spam. {}/{} lines said within {} seconds, {}/{} repeat lines said within {} seconds".format(nick, linessaid, LS_THRESH[0], LS_THRESH[1], repeats, REPEAT_THRESH[0],REPEAT_THRESH[1]))
 
-        #log.msg("User {nick} {0} webchat. Said {1} lines. {2} of them repeats.".format(
-        #    ["is not", "is"][is_webchat], linessaid, repeats, nick=nick))
-
-        # Set a base threshold
-        if is_webchat:
-            threshold = 3
-        else:
-            threshold = 4
-        
-        # Punish repeat lines more. (repeats is always at least 1, so this has
-        # no effect unless there were 2 identical lines)
-        threshold -= repeats - 1
-
-        if linessaid >= threshold:
-            log.msg("User {0} said {1} lines, over the threshold of {2}. {3} repeated lines.".format(
-                nick, linessaid, threshold, repeats))
-            mask = "*!*@{0}".format(event.user.split("@")[-1])
+            # serve punishment:
             try:
                 yield self.transport.issue_request("ircadmin.timedquiet",
-                        channel, mask, self.config['duration'])
-            except (ircop.OpFailed, ValueError) as e:
+                        channel, nick, self.config['duration'])
+            except (ircop.OpFailed, ValueError, ircutil.NoSuchNick) as e:
                 log.msg("Was going to quiet user {0} for flooding but I got an error: {1}".format(nick, e))
 
             # If they manage to get another few lines in before they're quited,
