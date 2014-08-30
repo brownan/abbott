@@ -433,8 +433,11 @@ class OpProvider(EventWatcher, BotPlugin):
         # this point in the code we have already acquired op. A self-op mode
         # could get this far in the code in a couple ways.  When we get a
         # request to OP ourself explicitly (!op bot), which is usually
-        # fulfilled by a connector, but wasn't for some reason, then we OP to
-        # process the buffers and one of the items is a +o on the bot
+        # fulfilled by a connector, but wasn't for some reason, then we get OP
+        # to process the buffers and one of the items in the mode buffer is a
+        # +o on the bot This special case removes the +o mode request and sets
+        # the already_opped flag to not remove OP after, thus fulfilling the
+        # intent of the request
         is_self_op = lambda x: x[0] == "+o" and x[1] == mynick
         if any(is_self_op(m) for m in modelist):
             already_opped = True
@@ -634,6 +637,14 @@ class OpProvider(EventWatcher, BotPlugin):
         The returned deferred fires as soon as OP is acquired.
 
         """
+        already_opped = (yield self.transport.issue_request("irc.has_op",
+            channel))
+        if already_opped:
+            # If we already have op, it could be for any number of reasons, but
+            # they all involve overriding the behavior of wanting to gain op
+            # for *only* the next duration seconds and instead keep our
+            # existing op indefinitely (by not calling _deop_later or anything)
+            return
         yield self._wait_for_op(channel)
         self.op_until[channel] = max(self.op_until[channel], time.time()+duration)
         self._deop_later(channel)
