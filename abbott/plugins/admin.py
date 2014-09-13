@@ -64,7 +64,10 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             self._set_all_timers()
 
     def _set_all_timers(self):
-        """Reads from the config and syncs the twisted timers with that"""
+        """Reads from the config and syncs the twisted timers with that.
+        This is called when the plugin is started or reloaded. basically
+        whenever we have to read the config and set twisted timers from
+        that."""
 
         for timer in self.later_timers.values():
             timer.cancel()
@@ -87,7 +90,9 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             timer = self.later_timers.pop((param, channel, mode))
             timer.cancel()
 
-        # Filter out any events that match this one from the persistent config
+        # Filter out any events that match this one from the persistent config.
+        # If this is being called from _set_all_timers(), the current entry is
+        # removed, but is added back below.
         self.config['laters'] = [item for item in self.config['laters']
                 if not (item[1] == param and
                        item[2] == channel and
@@ -207,7 +212,15 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         super(IRCAdmin, self).start()
 
         self.started = True
-        self._set_all_timers()
+        
+        # Start the timers for modes we need to set later. Don't start the
+        # timers right away, though, because we're likely still connecting to
+        # the server. This is a bit of a hack; a better way would be to detect
+        # when we're connected, or have the framework automatically buffer
+        # things like mode requests if sent while not connected. This hack won't
+        # help, for example, if the bot is started but disconnected due to
+        # network or server issues.
+        reactor.callLater(30, self._set_all_timers)
 
         self.listen_for_event("irc.on_mode_change")
 
@@ -807,7 +820,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             event.reply("It shall be done.")
 
     def _do_modederequest(self, channel, mode, hostmask, delay):
-        """See _do_moderequest()"""
+        """Note the *de* in _do_mode*de*request.
+        For info see _do_moderequest()"""
         if delay:
             self._set_timer(delay, hostmask, channel, "-"+mode)
             return defer.succeed(None)

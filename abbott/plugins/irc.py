@@ -27,7 +27,7 @@ class IRCBot(irc.IRCClient):
     """
 
     ### ALL METHODS BELOW ARE OVERRIDDEN METHODS OF irc.IRCClient (or ancestors)
-    ### AND ARE CALLED AUTOMATICALLY UPON THE APPROPRIATE EVENTS FROM THE IRC
+    ### AND ARE CALLED AUTOMATICALLY UPON THE RESPECTIVE EVENTS FROM THE IRC
     ### SERVER
 
     def lineReceived(self, line):
@@ -281,6 +281,10 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         reactor.callLater(5, self.connector.disconnect)
 
     def buildProtocol(self, addr):
+        """When a connection to the server is established, Twisted will call
+        this method to create a Protocol object. Protocol objects handle sending
+        and receiving data on the connection.
+        """
         p = IRCBot()
         p.factory = self
         p.nickname = self.config['nick']
