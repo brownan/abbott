@@ -291,23 +291,25 @@ class OpProvider(EventWatcher, BotPlugin):
 
         Request handlers should call this method after adding an item to the
         mode or event buffer.
-        
-        For items that will require acquiring OP, it is recommended the caller
-        also call (but not wait for) self._wait_for_op() after this method, so
-        that an OP request is submitted immediately and we'll have that pending
-        while the code goes on to possibly issue more requests and possibly add
-        more items to the buffers, which will then be batched together if they
-        come in before OP is acquired.
 
+        This method sets a timer to process the buffers in a few tenths of a
+        second. This is so that requests by the code can be batched together to
+        the server. Otherwise we risk getting OP to process a request a split
+        second before the code makes another request.
+
+        Note: it is no longer recommended that callers also call _wait_for_op()
+        along with calling this method, since a race condition may cause us to
+        not deop after the buffers are processed. The extra 2 tenths of a
+        second shouldn't matter much anyways.
+        
         This method returns no value, and returns immediately.
 
         """
-        # The time to wait here pretty much doesn't matter, because as a
-        # minimum we must wait for chanserv to respond and op us, which
-        # typically takes around 2 seconds, and could be as many as 20.
-        # It should still be small, however, so that requests when we're
-        # already OP go through quickly, but still leaves enough time to yield
-        # to other code that may want to submit more requests
+        # The time here is mostly arbitrary, but 0.2 seconds seems like a good
+        # time that gives the code a chance to submit multiple requests, while
+        # not delaying potentially time sensitive operations too much.
+        # Operations that we may want to push to the server as soon as
+        # possible.
         self.buffer_timer[channel] = time.time() + 0.2
         self._wait_buffer_processor_timer(channel)
 
@@ -458,6 +460,16 @@ class OpProvider(EventWatcher, BotPlugin):
                 and (not already_opped)
                 ):
             modelist.append(("-o", mynick, defer.Deferred()))
+        else:
+            log.msg("Not issuing a deop request because...")
+            if already_opped:
+                log.msg("  ...we are already opped")
+            if self.op_until[channel] >= time.time():
+                log.msg("  ...are in 'hold op' mode for {0} more seconds".format(self.op_until[channel]-time.time()))
+            if not self.config["opmethod"][channel].get("op"):
+                log.msg("  ...we have no way of reacquiring op on {0}".format(channel))
+            if modelist and is_self_deop(modelist[-1]):
+                log.msg("  ...the last mode in the queue is already a self-deop")
 
         # Loop through all the mode requests and combine them to submit them to
         # the server in batch.
@@ -556,8 +568,6 @@ class OpProvider(EventWatcher, BotPlugin):
         if not self.config['opmethod'][channel].get(operation, None):
             d = defer.Deferred()
             self._convert_connector(operation, channel, target, d)
-            # We will need OP, so go ahead and request it here.
-            self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
             # wait for the operation to finish, then return to the caller.
             # Yielding for this deferred will also propagate errors encountered
             # when processing the buffer to our caller.
@@ -573,9 +583,6 @@ class OpProvider(EventWatcher, BotPlugin):
         d = defer.Deferred()
         self.connector_buffer[channel].add((operation, target, d))
 
-        # We don't know if we'll need op or not for a connector operation, so
-        # just set the processor timer (unlike the other request handlers where
-        # we would go ahead and initiate an OP request here)
         self._set_buffer_processor_timer(channel)
         # d will return when the request is fulfilled or err trying
         yield d
@@ -620,12 +627,8 @@ class OpProvider(EventWatcher, BotPlugin):
         d = defer.Deferred()
         self.mode_buffer[channel].add((mode, param, d))
 
-        # Tell the plugin to process the buffer and go ahead and submit an OP
-        # request immediately since we know we'll need it for this. Silence
-        # errors on the op request, since errors to the caller will come
-        # through the returned deferred.
+        # Process the buffers since an item has been added to the mode buffer
         self._set_buffer_processor_timer(channel)
-        self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
         yield d
 
     @defer.inlineCallbacks
@@ -664,5 +667,4 @@ class OpProvider(EventWatcher, BotPlugin):
         d = defer.Deferred()
         self.event_buffer[channel].add((kickevent, d))
         self._set_buffer_processor_timer(channel)
-        self._wait_for_op(channel).addErrback(lambda f: f.trap(OpFailed))
         return d
