@@ -140,17 +140,17 @@ class Spam(CommandPluginSuperclass):
         if linessaid >= LS_THRESH[0] or repeats >= REPEAT_THRESH[0]:
             log.msg("A line by {} was detected as spam. {}/{} lines said within {} seconds, {}/{} repeat lines said within {} seconds".format(nick, linessaid, LS_THRESH[0], LS_THRESH[1], repeats, REPEAT_THRESH[0],REPEAT_THRESH[1]))
 
+            # If they manage to get another few lines in before they're quited,
+            # don't try and quiet them again right away. Do this by clearing
+            # the last lines.
+            self.lastlines.clear()
+
             # serve punishment:
             try:
                 yield self.transport.issue_request("ircadmin.timedquiet",
                         channel, nick, self.config['duration'])
             except (ircop.OpFailed, ValueError, ircutil.NoSuchNick) as e:
                 log.msg("Was going to quiet user {0} for flooding but I got an error: {1}".format(nick, e))
-
-            # If they manage to get another few lines in before they're quited,
-            # don't try and quiet them again right away. Do this by clearing
-            # the last lines.
-            self.lastlines.clear()
 
             msglines = self.config['msg']
             for l in msglines.split("\\n"):
