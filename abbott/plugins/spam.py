@@ -232,7 +232,7 @@ class ServerAd(pluginbase.EventWatcher, CommandPluginSuperclass):
                 return False
         except ValueError:
             return False
-        if split_ip[:3] == [10, 0, 0]:
+        if split_ip[:1] == [10]:
             return False
         elif split_ip[:3] == [127, 0, 0]:
             return False
