@@ -1,6 +1,6 @@
 # encoding: UTF-8
 from __future__ import unicode_literals
-from collections import defaultdict, deque
+from collections import defaultdict, deque, namedtuple
 import time
 import random
 import re
@@ -10,6 +10,7 @@ from twisted.python import log
 from twisted.internet import defer
 
 from parsedatetime.parsedatetime import Calendar
+import pretty
 
 from ..command import CommandPluginSuperclass, require_channel
 from ..pluginbase import EventWatcher
@@ -362,6 +363,17 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                 callback=self.flex,
                 helptext="OPs you for a few seconds, to show off your powah!",
                 )
+
+        self.install_command(
+                cmdname="bans",
+                cmdmatch="bans|listbans",
+                cmdusage="<mask> | all",
+                permission="irc.op.bans",
+                argmatch="(?P<mask>[^ ]+)",
+                callback=self.bans,
+                helptext="Lists the time until the given mask is unbanned. Use 'all' to list all timed bans",
+                )
+                
 
     @defer.inlineCallbacks
     def _nick_to_hostmask(self, nick):
@@ -918,6 +930,48 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         hostmask = (yield self._nick_to_hostmask(target))
 
         yield self._do_moderequest(channel, 'q', hostmask, duration)
+
+    def bans(self, event, match):
+        """A user has issued the bans command, a query to see who is banned and
+        for how long.
+        
+        """
+        reply = event.reply
+
+        groupdict =  match.groupdict()
+        mask = groupdict['mask']
+
+        LaterItem = namedtuple("LaterItem", ["channel", "time", "mask", "mode"])
+
+        # Filter out all but bans and quiets. also put in a list of namedtuples
+        # so it's easier to work with
+        laters = [
+                LaterItem(
+                    time=int(x[0]),
+                    mask=x[1],
+                    channel=x[2],
+                    mode=x[3])
+                for x in self.config['laters'] if x[3][1] in "bq"
+        ]
+
+        # Sort in the order of the namedtuple parameters: by channel and then by time
+        laters.sort()
+
+        if mask != "all":
+            laters = [x for x in laters if x.mask == mask]
+            if not laters:
+                reply("No pending events for {0}".format(mask))
+                return
+
+
+        for later in laters:
+            when = pretty.date(later.time)
+            reply("In {channel} setting {mode} {mask} {when}".format(
+                channel=later.channel,
+                mode=later.mode,
+                mask=later.mask,
+                when=when))
+        
 
 
 class IRCTopic(CommandPluginSuperclass):
