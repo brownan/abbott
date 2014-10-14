@@ -439,6 +439,11 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             if len(username) == 0:
                 username = "*"
 
+            if len(host) == 0:
+                # Don't assume the host is *. That could lead to easy mistakes
+                # that ban/quiet everyone
+                raise ValueError("No host given")
+
             mask = "{0}!{1}@{2}".format(
                     nick,
                     username,
