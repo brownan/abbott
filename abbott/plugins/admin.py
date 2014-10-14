@@ -393,12 +393,59 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         ircutil.NoSuchNick is raised. If the whois fails, an
         ircutil.WhoisTimedout is raised.
 
+        If a hostmask is given, some syntax checking is performed. If the
+        syntax can be corrected, the corrected hostmask is returned. If not, a
+        VauleError is raised.
+
         Returnes a deferred that fires with the answer.
 
         """
-        if ("!" in nick and "@" in nick) or (nick.startswith("$")):
-            # nick is not actually a nick, but already a mask of some sort
+        if nick.startswith("$"):
+            # An extban. just return it.
             defer.returnValue(nick)
+            return
+        elif "!" in nick or "@" in nick:
+            # nick is not actually a nick, but already a mask of some sort
+            mask = nick
+
+            # Do some syntax checking
+            if "@" not in mask:
+                raise ValueError("hostmask is missing an @")
+
+            # It's invalid for nicks or usernames to contain ! or @ characters,
+            # so we can make sure there's exactly one in the mask and not worry
+            # about how to split it (from the left or from the right)
+            if mask.count("@") > 1:
+                raise ValueError("more than one @ in hostmask")
+
+            if mask.count("!") > 1:
+                raise ValueError("more than one ! in hostmask")
+
+            if "!" not in mask:
+                # Assume the user typed <nick>@<host> and forgot the username field
+                nick, host = mask.split("@", 1)
+                mask = "{0}!*@{1}".format(nick, host)
+
+            # Here the mask has exactly one ! and exactly one @
+            nick, rest = mask.split("!",1)
+            username, host = rest.rsplit("@", 1)
+
+            # I'm pretty sure freenode does the following for us (adds a
+            # missing * to an empty field) but let's be complete about it and
+            # try to always send a valid mask
+            if len(nick) == 0:
+                nick = "*"
+
+            if len(username) == 0:
+                username = "*"
+
+            mask = "{0}!{1}@{2}".format(
+                    nick,
+                    username,
+                    host
+                    )
+
+            defer.returnValue(mask)
             return
 
         whois_results = (yield self.transport.issue_request("irc.whois", nick))
@@ -591,6 +638,9 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                         target,
                         ))
             return
+        except ValueError:
+            event.reply("Malformed hostmask. Hostmask syntax is <nick>!<username>@<host>", direct=True, notice=True)
+            return
 
         try:
             yield self._do_moderequest(channel, 'q', hostmask, duration)
@@ -689,43 +739,38 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         if not duration and self.config['defaulttime']:
             duration = self.config['defaulttime']
 
-        if "@" in target and "!" in target and not "$" in target:
-            # Target was a mask. Kick if the nick section doesn't have any
-            # wildcards. Ban the target as given
-            nick = target.split("!")[0]
-            hostmask = target
-            if "*" not in nick:
-                do_kick = True
-            else:
-                do_kick = False
-
-        elif "@" not in target and "!" not in target and "$" not in target:
+        if "@" not in target and "!" not in target and "$" not in target:
             # Just a nick was given. Do a kick on the target as given, but
-            # lookup the mask and do a ban on that.
+            # still lookup the mask and do a ban on that.
             nick = target
-            try:
-                hostmask = (yield self._nick_to_hostmask(target))
-            except ircutil.NoSuchNick:
-                event.reply("There is no user by that nick on the network. "
-                            "Try {0}!*@* to ban anyone with that nick, or specify a full hostmask.".format(
-                            nick,
-                            ))
-                return
-            except ircutil.WhoisTimedout:
-                event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
-                return
             do_kick = True
-
         else:
-            # something else (extban? malformed hostmask) don't try to kick,
-            # but pass it on to see if the irc server can make sense of it.
             do_kick = False
 
-        log.msg("issuing ban")
+        # Unconditionally pass the target through _nick_to_hostmask. If target
+        # is a nick, we get a hostmask out. If target is already a mask of some
+        # sort or an extban, we get the result passed through, but with some
+        # syntax checking.
+        try:
+            hostmask = (yield self._nick_to_hostmask(target))
+        except ircutil.NoSuchNick:
+            event.reply("There is no user by that nick on the network. "
+                        "Try {0}!*@* to ban anyone with that nick, or specify a full hostmask.".format(
+                        nick,
+                        ))
+            return
+        except ircutil.WhoisTimedout:
+            event.reply("That's odd, the whois I did on %s didn't work. Sorry." % nick)
+            return
+        except ValueError:
+            event.reply("Malformed hostmask. Hostmask syntax is <nick>!<username>@<host>", direct=True, notice=True)
+            return
+
+        log.msg("issuing ban for {0}".format(hostmask))
         ban_d = self._do_moderequest(channel, 'b', hostmask, duration)
 
         if do_kick:
-            log.msg("issuing kick to go with the ban")
+            log.msg("issuing kick for {0} to go with the ban".format(nick))
             kick_d = self.transport.issue_request("ircop.kick",
                     channel=channel,
                     target=nick,
@@ -733,7 +778,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                     )
         try:
             yield ban_d
-            yield kick_d
+            if do_kick:
+                yield kick_d
         except ircop.OpFailed as e:
             event.reply(str(e))
 
@@ -792,6 +838,9 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                         target,
                         ))
             return
+        except ValueError:
+            event.reply("Malformed hostmask. Hostmask syntax is <nick>!<username>@<host>", direct=True, notice=True)
+            return
 
         try:
             yield self._do_modederequest(channel, 'q', hostmask, delay)
@@ -822,6 +871,9 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                         "Try specifying a full hostmask. Use “/mode +b” to see the channel ban list".format(
                         target,
                         ))
+            return
+        except ValueError:
+            event.reply("Malformed hostmask. Hostmask syntax is <nick>!<username>@<host>", direct=True, notice=True)
             return
 
         try:
@@ -898,6 +950,11 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
 
         if "m" not in (yield self.transport.issue_request("irc.chanmode", channel))[0]:
             log.msg("Setting moderated mode on {0}".format(channel))
+            event.reply("Channel is now in LOCKDOWN mode. Only OPs and voiced users may speak.",direct=True, notice=True)
+            event.reply("Helpful tips for channel problems:",direct=True, notice=True)
+            event.reply("Use !m again to undo and revert to normal", direct=True, notice=True)
+            event.reply("To quiet all unregistered users: !quiet $~a", direct=True, notice=True)
+            event.reply("To prevent unregistered users from joining: !mode +r", direct=True, notice=True)
             req1 = self.transport.issue_request("ircop.mode", channel, "+m")
             req2 = self.transport.issue_request("ircop.op", channel, nick)
         else:
