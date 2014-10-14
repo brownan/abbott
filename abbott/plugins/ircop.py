@@ -541,10 +541,13 @@ class OpProvider(EventWatcher, BotPlugin):
 
     @defer.inlineCallbacks
     def _do_connector_operation(self, operation, channel, target):
-        """Handles the operations that require OP but can be handled by a
-        connector if available. Does one of: op, deop, voice, devoice, quiet,
-        unquiet, or topic. Chooses whether to use a connector or do the
-        operation ourself as appropriate.
+        """This is the entry point for inter-plugin requests that are handled
+        by connectors (i.e. can be sent to chanserv instead of having to OP
+        ourself)
+        
+        Does one of: op, deop, voice, devoice, quiet, unquiet, or topic.
+        Chooses whether to use a connector or do the operation ourself
+        depending on the config or other factors.
 
         """
         # Special case for the topic operation: we do not need op if channel
@@ -575,11 +578,21 @@ class OpProvider(EventWatcher, BotPlugin):
             yield d
             return
 
+        # If the operation is a quiet or unquiet, and the target is an extban,
+        # then workaround a bug in chanserv and submit this to do ourself as a
+        # mode request instead of a connector request.
+        if operation in ("quiet","unquiet") and target.startswith("$"):
+            d = defer.Deferred()
+            self._convert_connector(operation, channel, target, d)
+            self._set_buffer_processor_timer(channel)
+            yield d
+            return
+
+
         # Go ahead and submit this as a connector operation. For now. Later on
         # when the buffer is processed, it may decide to process this ourself
-        # instead of using the connector.
-
-        # Add this to the connector queue
+        # instead of using the connector if for example we have to acquire OP
+        # for some other reason.
         d = defer.Deferred()
         self.connector_buffer[channel].add((operation, target, d))
 
