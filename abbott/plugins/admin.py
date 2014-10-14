@@ -784,9 +784,9 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             event.reply(str(e))
 
     def _do_moderequest(self, channel, mode, hostmask, duration):
-        """Sets a mode on the given hostmask in a channel for an optional
-        duration. If duration is None, we will not set it back after any length
-        of time.
+        """Sets a ban or quiet on the given hostmask in a channel for an
+        optional duration. If duration is None, we will not set it back after
+        any length of time. (a default time should be set by the caller)
 
         This method returns a deferred that fires when the mode request has
         been completed. It may error with an ircop.OpFailed exception
