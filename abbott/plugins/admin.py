@@ -70,8 +70,20 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         whenever we have to read the config and set twisted timers from
         that."""
 
+        if self.initial_setalltimers_timer:
+            if self.initial_setalltimers_timer.active():
+                # This function was called from somewhere before the initial
+                # call (maybe from reload?). Just ignore it. We'll get called
+                # soon enough.
+                return
+            else:
+                # First time this function is called. Set this to none
+                self.initial_setalltimers_timer = None
+
         for timer in self.later_timers.values():
             timer.cancel()
+        # Avoid AlreadyCancelled errors by deleting the timer objects
+        self.later_timers = {}
 
         for activatetime, param, channel, mode in self.config['laters']:
             self._set_timer(activatetime - time.time(), param, channel, mode)
@@ -209,6 +221,11 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         for timer in self.later_timers.values():
             timer.cancel()
 
+        # if the plugin is stopped (happens on module reload) before the
+        # initial call to _set_all_timers, then make sure to cancel that timer!
+        if self.initial_setalltimers_timer:
+            self.initial_setalltimers_timer.cancel()
+
     def start(self):
         super(IRCAdmin, self).start()
 
@@ -221,7 +238,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         # things like mode requests if sent while not connected. This hack won't
         # help, for example, if the bot is started but disconnected due to
         # network or server issues.
-        reactor.callLater(30, self._set_all_timers)
+        self.initial_setalltimers_timer = reactor.callLater(30, self._set_all_timers)
 
         self.listen_for_event("irc.on_mode_change")
 
