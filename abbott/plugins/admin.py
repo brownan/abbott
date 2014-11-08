@@ -646,8 +646,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             try:
                 duration = parse_time(duration)
             except ValueError as e:
-                event.reply(str(e))
-                return
+                # use the default (set below)
+                duration = None
 
         if not duration and self.config['defaulttime']:
             duration = self.config['defaulttime']
@@ -668,6 +668,13 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             yield self._do_moderequest(channel, 'q', hostmask, duration)
         except ircop.OpFailed as e:
             event.reply(str(e))
+
+        if duration:
+            event.reply("Will unquiet {} {}".format(
+                    hostmask,
+                    # bug: pretty.date doesn't accept floats as timestamps
+                    pretty.date(int(time.time()+duration))
+                ), direct=True, notice=True)
 
     @require_channel
     @defer.inlineCallbacks
@@ -805,6 +812,13 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         except ircop.OpFailed as e:
             event.reply(str(e))
 
+        if duration:
+            event.reply("Will unban {} {}".format(
+                    hostmask,
+                    # bug: pretty.date doesn't accept floats as timestamps
+                    pretty.date(int(time.time()+duration))
+                ), direct=True, notice=True)
+
     def _do_moderequest(self, channel, mode, hostmask, duration):
         """Sets a ban or quiet on the given hostmask in a channel for an
         optional duration. If duration is None, we will not set it back after
@@ -869,7 +883,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         except ircop.OpFailed as e:
             event.reply(str(e))
         if delay:
-            event.reply("It shall be done.")
+            event.reply("Unquieting {}".format(pretty.date(int(time.time()+delay))))
 
     @require_channel
     @defer.inlineCallbacks
@@ -903,7 +917,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         except ircop.OpFailed as e:
             event.reply(str(e))
         if delay:
-            event.reply("It shall be done.")
+            event.reply("Unbanning {}".format(pretty.date(int(time.time()+delay))))
 
     def _do_modederequest(self, channel, mode, hostmask, delay):
         """Note the *de* in _do_mode*de*request.
@@ -950,8 +964,10 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                 # 'in' or 'at' indicate this is when we want to do the mode. as
                 # opposed to 'do the mode until/for <time> and then revert it'
                 self._set_timer(time_to_wait, param, channel, mode)
-                event.reply("Doing a {0} {1} in {2:.0f} seconds".format(
-                    mode, param, time_to_wait))
+                event.reply(u"Doing a {0}{1} {2}".format(
+                    mode, u" "+param if param else "",
+                    pretty.date(int(time.time()+time_to_wait))
+                    ))
                 return
 
         try:
@@ -963,6 +979,10 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
         if timespec:
             reversemode = {"-":"+","+":"-"}[mode[0]] + mode[1]
             self._set_timer(time_to_wait, param, channel, reversemode)
+            event.reply(u"Doing a {0}{1} {2}".format(
+                reversemode, u" "+param if param else "",
+                pretty.date(int(time.time()+time_to_wait))
+                ))
 
     @require_channel
     @defer.inlineCallbacks
