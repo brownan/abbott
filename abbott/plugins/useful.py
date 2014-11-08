@@ -126,7 +126,7 @@ class MyProcessProtocol(ProcessProtocol):
             self.timer = reactor.callLater(self.timeout, self.timed_out)
 
     def outReceived(self, data):
-        self.output.write(data)
+        self.output.write(data.decode("UTF-8"))
     def errReceived(self, data):
         if self.capstderr:
             self.output.write(data)

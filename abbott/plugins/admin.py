@@ -252,7 +252,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                 argmatch = "(?P<nick>[^ ]+)( (?P<reason>.*))?$",
                 permission="irc.op.kick",
                 callback=self.kick,
-                deniedcallback=self.kickself,
+                #deniedcallback=self.kickself,
                 helptext="Kicks a user from the current channel")
 
         # Op commands
@@ -302,7 +302,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                 argmatch = "(?P<nick>[^ ]+)(?: (?P<timestr>.+))?$",
                 permission="irc.op.quiet",
                 callback=self.quiet,
-                deniedcallback=self.quietself,
+                #deniedcallback=self.quietself,
                 helptext="Quiets a user."
                 )
 
@@ -921,7 +921,15 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
 
     def _do_modederequest(self, channel, mode, hostmask, delay):
         """Note the *de* in _do_mode*de*request.
-        For info see _do_moderequest()"""
+        For info see _do_moderequest()
+        
+        Difference between this method and _do_moderequest: do_moderequest
+        takes a *duration*; it always applies the requested mode and then
+        un-does that after the duration.
+
+        This method on the other hand takes a *delay*; it always applies the
+        requested mode but may wait to do so.
+        """
         if delay:
             self._set_timer(delay, hostmask, channel, "-"+mode)
             return defer.succeed(None)
@@ -982,7 +990,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             event.reply(u"Doing a {0}{1} {2}".format(
                 reversemode, u" "+param if param else "",
                 pretty.date(int(time.time()+time_to_wait))
-                ))
+                ), direct=True, notice=True)
 
     @require_channel
     @defer.inlineCallbacks
