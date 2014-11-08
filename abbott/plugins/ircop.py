@@ -98,7 +98,7 @@ class ChanservConnector(BotPlugin):
 
         self.transport.send_event(Event("irc.do_msg",
             user="ChanServ",
-            message="{op} {channel} {nick}".format(
+            message=u"{op} {channel} {nick}".format(
                 op=operation,
                 channel=channel,
                 nick=nick),
@@ -487,10 +487,13 @@ class OpProvider(EventWatcher, BotPlugin):
             if modereq[1]:
                 params.append(modereq[1])
 
-            # If this was the last of the buffer or we've accumulated 3
-            # requests, send them to the server. The length below is 6 because
+            # If this was the last of the buffer or we've accumulated 4
+            # requests, send them to the server. The length below is 8 because
             # there are 2 chars per mode request, the + or -, and the letter.
-            if i == len(modelist)-1 or len(modeline) >= 6:
+            # CONFIGURE THIS VALUE to change how many modes can be sent in a
+            # single request. TODO: get this value from the server
+            # automatically (it's sent on join I think)
+            if i == len(modelist)-1 or len(modeline) >= 8:
                 # Send the mode line ourselves as a do_raw because do_mode can
                 # only set or unset one thing at a time.
                 log.msg("Sending mode requests {0} {1}".format(modeline, params))
