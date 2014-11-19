@@ -68,16 +68,20 @@ class WeechatConnector(BotPlugin):
     def incoming_request(self, reqname, channel, nick):
         operation = reqname.split(".")[-1].upper()
 
-        path = glob.glob(os.path.expanduser("~/.weechat/weechat_fifo_*"))[0]
+        paths = glob.glob(os.path.expanduser("~/.weechat/weechat_fifo_*"))
+        if len(paths) == 0:
+            raise IndexError("No weechat fifo connectors found. Cannot use weechat connector")
+
+        path = paths[0]
 
         log.msg("Weechat connector sending command {0} {1} {2}".format(operation, channel, nick))
         with open(path, 'w') as out:
-            out.write("{weechat_server} */msg ChanServ {op} {channel} {nick}\n".format(
+            out.write(u"{weechat_server} */msg ChanServ {op} {channel} {nick}\n".format(
                 weechat_server=self.config['weechat_server'],
                 op=operation,
                 channel=channel,
                 nick=nick,
-                ))
+                ).encode("UTF-8"))
 
 class ChanservConnector(BotPlugin):
     """Listens for requests of the form connector.chanserv.X where X is one of:
