@@ -386,9 +386,9 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                 cmdmatch="bans|listbans",
                 cmdusage="<mask> | all",
                 permission="irc.op.bans",
-                argmatch="(?P<mask>[^ ]+)",
+                argmatch="(?P<mask>[^ ]+)?",
                 callback=self.bans,
-                helptext="Lists the time until the given mask is unbanned. Use 'all' to list all timed bans",
+                helptext="Lists the time until the given mask is unbanned.",
                 )
                 
 
@@ -1047,6 +1047,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
 
         groupdict =  match.groupdict()
         mask = groupdict['mask']
+        if not mask:
+            mask = "all"
 
         LaterItem = namedtuple("LaterItem", ["channel", "time", "mask", "mode"])
 
