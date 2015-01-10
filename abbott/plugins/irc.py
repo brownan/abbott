@@ -289,6 +289,7 @@ class IRCBotPlugin(protocol.ReconnectingClientFactory, BotPlugin):
         p.factory = self
         p.nickname = self.config['nick']
         p.password = self.config.get("password", None)
+        p.realname = self.config.get("realname", "Abbott")
         return p
 
     def broadcast_message(self, eventname, **kwargs):
