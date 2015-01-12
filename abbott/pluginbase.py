@@ -124,6 +124,7 @@ I'll create a new one for you now""")
                         'server': server,
                         'port': port,
                         'nick': nick,
+                        'realname': 'Bot operated by' + admin,
                         'channels': [channel],
                         # REMOVE is supported on freenode. I don't know about any others.
                         'remove': "freenode" in server,
