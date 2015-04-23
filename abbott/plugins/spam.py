@@ -145,6 +145,12 @@ class Spam(CommandPluginSuperclass):
             # the last lines.
             self.lastlines.clear()
 
+            # Devoice if voiced. Do this asynchronously though since the names call may take a moment.
+            def devoice(names):
+                if "+"+nick in names:
+                    self.transport.issue_request("ircop.devoice", channel=channel, target=nick)
+            self.transport.issue_request("irc.names", channel).addCallback(devoice)
+
             # serve punishment:
             try:
                 yield self.transport.issue_request("ircadmin.timedquiet",
