@@ -675,6 +675,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                     # bug: pretty.date doesn't accept floats as timestamps
                     pretty.date(int(time.time()+duration))
                 ), direct=True, notice=True)
+        else:
+            event.reply("Warning: no duration given. Quiet will be permanent", direct=True, notice=True)
 
     @require_channel
     @defer.inlineCallbacks
@@ -743,6 +745,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             yield kick_d
         except ircop.OpFailed as e:
             event.reply(str(e))
+            return
         event.reply("Redirected {0} to {1} for 2 hours".format(nick, destchan))
 
     @require_channel
@@ -775,6 +778,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             do_kick = True
         else:
             do_kick = False
+            # Nick is only used for kicking, and for reply() calls.
+            nick = target.split("!",1)[0]
 
         # Unconditionally pass the target through _nick_to_hostmask. If target
         # is a nick, we get a hostmask out. If target is already a mask of some
@@ -805,6 +810,10 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                     target=nick,
                     reason=reason,
                     )
+        else:
+            # Silence the static analysis
+            kick_d = defer.succeed(None)
+
         try:
             yield ban_d
             if do_kick:
@@ -818,6 +827,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                     # bug: pretty.date doesn't accept floats as timestamps
                     pretty.date(int(time.time()+duration))
                 ), direct=True, notice=True)
+        else:
+            event.reply("Warning: no duration given. Ban will be permanent", direct=True, notice=True)
 
     def _do_moderequest(self, channel, mode, hostmask, duration):
         """Sets a ban or quiet on the given hostmask in a channel for an
@@ -967,6 +978,7 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
                 time_to_wait = parse_time(timespec)
             except ValueError as e:
                 event.reply(e)
+                return
 
             if timespec.startswith("in") or timespec.startswith("at"):
                 # 'in' or 'at' indicate this is when we want to do the mode. as
