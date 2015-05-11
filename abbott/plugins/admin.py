@@ -484,6 +484,8 @@ class IRCAdmin(EventWatcher, CommandPluginSuperclass):
             # some other gateway. ban by username.
             nick = "*"
             host = "gateway/*"
+            if username.startswith("uid") or username.startswith("sid"):
+                username = "?" + username[1:]
         else:
             nick = "*"
             username = "*"
